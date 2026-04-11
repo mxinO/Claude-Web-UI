@@ -10,6 +10,7 @@ import {
   createPermissionRequest,
 } from './db.js';
 import type { DbEvent } from './types.js';
+import { startStreaming, stopStreaming } from './streaming.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
@@ -137,6 +138,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     });
     const event = getEvent(eventId)!;
     bc.broadcastEvent(session_id, event);
+    // Start streaming — poll tmux for partial output
+    startStreaming(session_id);
     res.json({ ok: true, event_id: eventId });
   });
 
@@ -152,6 +155,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       return;
     }
     ensureSession(session_id, cwd);
+    // Stop streaming — the final message is here
+    stopStreaming();
     const eventId = insertEvent(session_id, 'assistant_message', {
       message_text: last_assistant_message ?? assistant_message ?? null,
       status: stop_reason ?? 'end_turn',
@@ -180,6 +185,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       res.status(400).json({ error: 'session_id is required' });
       return;
     }
+    // Stop streaming when a tool starts
+    stopStreaming();
 
     // Snapshot file before Write overwrites it
     let fileBefore: string | null = null;

@@ -763,3 +763,9 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Streaming partial response */
+.streaming-bubble {
+  border-left: 2px solid var(--text-accent);
+  opacity: 0.9;
+}
