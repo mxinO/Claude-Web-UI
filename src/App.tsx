@@ -9,6 +9,7 @@ import { MarkdownView } from './components/MarkdownView';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
+import { completeMarkdown } from './lib/completeMarkdown';
 import './App.css';
 
 export default function App() {
@@ -134,7 +135,7 @@ export default function App() {
           {streamingText && (
             <div className="chat-row chat-row--assistant">
               <div className="chat-bubble chat-bubble--assistant">
-                <MarkdownView content={streamingText} />
+                <MarkdownView content={completeMarkdown(streamingText)} />
               </div>
             </div>
           )}
