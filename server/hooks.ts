@@ -19,6 +19,13 @@ export interface BroadcastFns {
   broadcastPermission(sessionId: string, permId: string, eventId: number, toolName: string, toolInput: unknown): void;
 }
 
+// Track the managed Claude session ID. Set on first SessionStart from the tmux Claude.
+// When set, only events from this session are accepted; others are silently dropped.
+let managedSessionId: string | null = null;
+
+export function getManagedSessionId(): string | null { return managedSessionId; }
+export function setManagedSessionId(id: string | null): void { managedSessionId = id; }
+
 /** Ensure a session exists, creating one if needed. */
 function ensureSession(sessionId: string, cwd?: string, model?: string): void {
   if (!getSession(sessionId)) {
@@ -54,12 +61,38 @@ function reconstructFileBefore(filePath: string, oldString: string, newString: s
 }
 
 export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
+
+  // Middleware: silently drop events from non-managed sessions
+  app.use('/hooks', (req: Request, res: Response, next) => {
+    const sessionId = req.body?.session_id;
+    // session-start is handled specially (sets managedSessionId), let it through
+    if (req.path === '/session-start') { next(); return; }
+    // If no managed session yet (mock mode), accept everything
+    if (!managedSessionId) { next(); return; }
+    // Filter: only accept events from the managed session
+    if (sessionId && sessionId !== managedSessionId) {
+      res.json({ ok: true, ignored: true });
+      return;
+    }
+    next();
+  });
+
   // ── /session-start ───────────────────────────────────────────────────────
   app.post('/hooks/session-start', (req: Request, res: Response) => {
     const { session_id, cwd, model } = req.body as Record<string, string | undefined>;
     if (!session_id) {
       res.status(400).json({ error: 'session_id is required' });
       return;
+    }
+    // In real mode, the first SessionStart after server boot is the managed session.
+    // If managedSessionId is already set and this is a different session, ignore.
+    if (managedSessionId && session_id !== managedSessionId) {
+      res.json({ ok: true, ignored: true });
+      return;
+    }
+    if (!managedSessionId) {
+      managedSessionId = session_id;
+      if (DEBUG) console.log(`[hooks] Managed session set to: ${session_id}`);
     }
     createSession(session_id, model, cwd);
     res.json({ ok: true });

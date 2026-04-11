@@ -9,6 +9,7 @@ import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
+import { setManagedSessionId } from './hooks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3001');
@@ -47,6 +48,7 @@ server.listen(PORT, HOST, () => {
 
   if (MOCK) {
     console.log('Running in --mock mode (no tmux/Claude)');
+    setManagedSessionId(null); // accept all sessions in mock mode
     return;
   }
 
