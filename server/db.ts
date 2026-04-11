@@ -133,13 +133,20 @@ export function getEvents(sessionId: string, options: GetEventsOptions = {}): Db
     params.push(afterId);
   }
 
-  let sql = `SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY id ASC`;
+  // afterId: get events after a point, ascending (for WebSocket catch-up)
+  // before: get N most recent events before a point (for scroll-up pagination)
+  // neither: get the latest N events (for initial load)
+  // In all cases, return in chronological order (oldest first)
+  const wantLatest = before !== undefined || (afterId === undefined && limit !== undefined);
+  const order = wantLatest ? 'DESC' : 'ASC';
+  let sql = `SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY id ${order}`;
   if (limit !== undefined) {
     sql += ` LIMIT ?`;
     params.push(limit);
   }
 
-  return getDb().prepare(sql).all(...params) as DbEvent[];
+  const results = getDb().prepare(sql).all(...params) as DbEvent[];
+  return wantLatest ? results.reverse() : results;
 }
 
 export function getEvent(id: number): DbEvent | null {

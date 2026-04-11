@@ -30,9 +30,8 @@ export function useEventStore(): UseEventStoreReturn {
     fetch(`/api/events?session_id=${encodeURIComponent(newSession.id)}&limit=${PAGE_LIMIT}`)
       .then(res => res.ok ? res.json() : [])
       .then((fetched: TimelineEvent[]) => {
-        // API returns newest-first; reverse for chronological order
-        const chronological = [...fetched].reverse();
-        setEvents(chronological);
+        // API returns chronological order (ASC by id)
+        setEvents(fetched);
         if (fetched.length === PAGE_LIMIT) {
           setHasMore(true);
         }
@@ -72,12 +71,10 @@ export function useEventStore(): UseEventStoreReturn {
         setHasMore(false);
         return;
       }
-      // API returns newest-first; reverse for chronological order then prepend
-      const chronological = [...fetched].reverse();
+      // API returns chronological (ASC), prepend older events
       setEvents(prev => {
-        // Deduplicate
         const existingIds = new Set(prev.map(e => e.id));
-        const newOnes = chronological.filter(e => !existingIds.has(e.id));
+        const newOnes = fetched.filter(e => !existingIds.has(e.id));
         return [...newOnes, ...prev];
       });
       if (fetched.length < PAGE_LIMIT) {
