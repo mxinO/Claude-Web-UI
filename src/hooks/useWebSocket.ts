@@ -1,5 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { Session, TimelineEvent } from '../types';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { Session, TimelineEvent } from '../types';
 
 interface UseWebSocketOptions {
   onEvent: (event: TimelineEvent) => void;
@@ -7,127 +7,86 @@ interface UseWebSocketOptions {
   setSession: (session: Session) => void;
 }
 
-export function useWebSocket({ onEvent, session, setSession }: UseWebSocketOptions): { connected: boolean } {
-  const connectedRef = useRef(false);
+export function useWebSocket({ onEvent, session, setSession }: UseWebSocketOptions) {
+  const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastEventIdRef = useRef<number | undefined>(undefined);
-  const connectedStateRef = useRef(false);
-  const mountedRef = useRef(true);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
+  const lastEventId = useRef(0);
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
 
-  // We use a forceUpdate pattern via ref to avoid infinite loops
-  // but we expose connected via a ref-backed approach.
-  // For simplicity, we track connected state and the caller can re-render via session changes.
-
-  const connect = useCallback((sess: Session | null) => {
-    if (!mountedRef.current) return;
+  const connect = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.onclose = null;
-      wsRef.current.onmessage = null;
-      wsRef.current.onerror = null;
       wsRef.current.close();
-      wsRef.current = null;
     }
 
-    const url = `ws://${window.location.host}/ws`;
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(url);
-    } catch {
-      scheduleReconnect(sess);
-      return;
-    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      if (!mountedRef.current) return;
-      connectedRef.current = true;
-      if (sess) {
+      setConnected(true);
+      if (session?.id) {
         ws.send(JSON.stringify({
           type: 'subscribe',
-          session_id: sess.id,
-          last_event_id: lastEventIdRef.current,
+          session_id: session.id,
+          last_event_id: lastEventId.current,
         }));
       }
     };
 
-    ws.onmessage = (evt: MessageEvent) => {
-      if (!mountedRef.current) return;
+    ws.onmessage = (msg) => {
       try {
-        const data = JSON.parse(evt.data as string);
-        if (data.type === 'event') {
-          const event: TimelineEvent = data.event;
-          if (event.id > (lastEventIdRef.current ?? -1)) {
-            lastEventIdRef.current = event.id;
-          }
-          onEvent(event);
+        const data = JSON.parse(msg.data);
+        if (data.type === 'event' && data.event) {
+          const event = data.event as TimelineEvent;
+          lastEventId.current = Math.max(lastEventId.current, event.id);
+          onEventRef.current(event);
         }
       } catch {
-        // ignore parse errors
+        // ignore
       }
-    };
-
-    ws.onerror = () => {
-      // error will be followed by close
     };
 
     ws.onclose = () => {
-      if (!mountedRef.current) return;
-      connectedRef.current = false;
+      setConnected(false);
       wsRef.current = null;
-      scheduleReconnect(sess);
+      const delay = 1000 + Math.random() * 4000;
+      reconnectTimer.current = setTimeout(connect, delay);
     };
-  }, [onEvent]);
 
-  const scheduleReconnect = useCallback((sess: Session | null) => {
-    if (!mountedRef.current) return;
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-    }
-    const delay = (1 + Math.random() * 9) * 1000; // 1-10s random
-    reconnectTimerRef.current = setTimeout(() => {
-      if (mountedRef.current) {
-        connect(sess);
-      }
-    }, delay);
-  }, [connect]);
+    ws.onerror = () => ws.close();
+  }, [session?.id]);
 
-  // Fetch latest session on mount
+  // Fetch latest session on mount, then connect
   useEffect(() => {
-    mountedRef.current = true;
-
     fetch('/api/sessions/latest')
-      .then(res => res.ok ? res.json() : null)
-      .then((sess: Session | null) => {
-        if (sess && mountedRef.current) {
-          setSession(sess);
-        }
-      })
-      .catch(() => {
-        // no session found, connect anyway
-        connect(null);
-      });
+      .then(r => r.ok ? r.json() : null)
+      .then(s => { if (s) setSession(s); })
+      .catch(() => {});
+
+    connect();
 
     return () => {
-      mountedRef.current = false;
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-      }
+      clearTimeout(reconnectTimer.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();
-        wsRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line
 
   // Re-subscribe when session changes
   useEffect(() => {
-    if (!mountedRef.current) return;
-    // Reset lastEventId when session changes
-    lastEventIdRef.current = undefined;
-    connect(session);
-  }, [session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (wsRef.current?.readyState === WebSocket.OPEN && session?.id) {
+      wsRef.current.send(JSON.stringify({
+        type: 'subscribe',
+        session_id: session.id,
+        last_event_id: lastEventId.current,
+      }));
+    }
+  }, [session?.id]);
 
-  return { connected: connectedRef.current };
+  return { connected };
 }
