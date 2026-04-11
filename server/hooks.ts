@@ -359,10 +359,21 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   });
 
   // ── /notification ────────────────────────────────────────────────────────
+  // Skip noisy system notifications that don't add value to the timeline
+  const IGNORED_NOTIFICATIONS = [
+    'waiting for your input',
+    'is ready',
+  ];
+
   app.post('/hooks/notification', (req: Request, res: Response) => {
     const { session_id, cwd, message, agent_id, agent_type } = req.body as Record<string, string | undefined>;
     if (!session_id) {
       res.status(400).json({ error: 'session_id is required' });
+      return;
+    }
+    const msgLower = (message || '').toLowerCase();
+    if (IGNORED_NOTIFICATIONS.some(n => msgLower.includes(n))) {
+      res.json({ ok: true, ignored: true });
       return;
     }
     ensureSession(session_id, cwd);
