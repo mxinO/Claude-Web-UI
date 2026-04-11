@@ -5,15 +5,11 @@ const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
 const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout: 5000 };
 
 export function sendInput(text: string): void {
-  // Use tmux send-keys -l for literal mode (no escape interpretation)
-  // We need to handle Enter separately since -l treats it literally
+  // Send the text followed by Enter to Claude Code's TUI.
+  // Note: -l (literal) mode doesn't work with Claude Code's input handler.
+  // Instead, send the text as a single quoted argument + Enter.
   execSync(
-    `tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} -l ${shellEscape(text)}`,
-    execOpts
-  );
-  // Send Enter key
-  execSync(
-    `tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`,
+    `tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} ${shellEscape(text)} Enter`,
     execOpts
   );
 }

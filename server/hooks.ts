@@ -12,6 +12,7 @@ import {
 import type { DbEvent } from './types.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
+const DEBUG = process.env.DEBUG_HOOKS === '1';
 
 export interface BroadcastFns {
   broadcastEvent(sessionId: string, event: DbEvent): void;
@@ -78,14 +79,15 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
 
   // ── /user-prompt ─────────────────────────────────────────────────────────
   app.post('/hooks/user-prompt', (req: Request, res: Response) => {
-    const { session_id, cwd, user_input, agent_id, agent_type } = req.body as Record<string, string | undefined>;
+    if (DEBUG) console.log('[hook:user-prompt]', JSON.stringify(req.body).slice(0, 500));
+    const { session_id, cwd, user_input, prompt, agent_id, agent_type } = req.body as Record<string, string | undefined>;
     if (!session_id) {
       res.status(400).json({ error: 'session_id is required' });
       return;
     }
     ensureSession(session_id, cwd);
     const eventId = insertEvent(session_id, 'user_message', {
-      message_text: user_input ?? null,
+      message_text: prompt ?? user_input ?? null,
       agent_id: agent_id ?? null,
       agent_type: agent_type ?? null,
       status: 'completed',
@@ -97,7 +99,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
 
   // ── /stop (assistant message) ────────────────────────────────────────────
   app.post('/hooks/stop', (req: Request, res: Response) => {
-    const { session_id, cwd, assistant_message, stop_reason, agent_id, agent_type } = req.body as Record<
+    if (DEBUG) console.log('[hook:stop]', JSON.stringify(req.body).slice(0, 500));
+    const { session_id, cwd, assistant_message, last_assistant_message, stop_reason, agent_id, agent_type } = req.body as Record<
       string,
       string | undefined
     >;
@@ -107,7 +110,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     ensureSession(session_id, cwd);
     const eventId = insertEvent(session_id, 'assistant_message', {
-      message_text: assistant_message ?? null,
+      message_text: last_assistant_message ?? assistant_message ?? null,
       status: stop_reason ?? 'end_turn',
       agent_id: agent_id ?? null,
       agent_type: agent_type ?? null,
