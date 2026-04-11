@@ -4,13 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "tsx server/index.ts",
+    "start:mock": "tsx server/index.ts --mock",
     "dev:client": "vite",
-    "dev:server": "tsx watch server/index.ts",
+    "dev:server": "tsx watch server/index.ts --mock",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build:client": "vite build",
-    "build:server": "tsc -p tsconfig.server.json",
-    "build": "npm run build:client && npm run build:server",
-    "start": "node dist/server/index.js",
+    "build": "vite build",
     "test": "vitest run"
   },
   "dependencies": {
