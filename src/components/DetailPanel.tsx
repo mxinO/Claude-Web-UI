@@ -9,11 +9,15 @@ interface Props {
 
 function getTitle(event: TimelineEvent): string {
   switch (event.event_type) {
-    case 'user_prompt': return 'User Prompt';
+    case 'user_message':
+    case 'user_prompt': return 'User Message';
     case 'assistant_message': return 'Assistant Message';
-    case 'tool_use': return `Tool: ${event.tool_name || 'unknown'}`;
-    case 'permission': return 'Permission Request';
-    case 'agent_stop': return 'Agent Stop';
+    case 'tool_use':
+    case 'tool_result': return `Tool: ${event.tool_name || 'unknown'}`;
+    case 'permission':
+    case 'permission_request': return 'Permission Request';
+    case 'agent_stop':
+    case 'subagent_stop': return 'Subagent Result';
     default: return event.event_type;
   }
 }
@@ -29,7 +33,7 @@ function parseToolInput(raw: string | null): Record<string, unknown> {
 
 function EditDiff({ event }: { event: TimelineEvent }) {
   const input = parseToolInput(event.tool_input);
-  const filePath = (input.path as string) || '';
+  const filePath = (input.file_path as string) || '';
   const oldString = (input.old_string as string) ?? '';
   const newString = (input.new_string as string) ?? '';
   const language = detectLanguage(filePath);
@@ -58,7 +62,7 @@ function EditDiff({ event }: { event: TimelineEvent }) {
 
 function WriteDiff({ event }: { event: TimelineEvent }) {
   const input = parseToolInput(event.tool_input);
-  const filePath = (input.path as string) || '';
+  const filePath = (input.file_path as string) || '';
   const content = (input.content as string) ?? '';
   const language = detectLanguage(filePath);
 
@@ -87,11 +91,13 @@ function PermissionInfo({ event }: { event: TimelineEvent }) {
 
 function DetailContent({ event }: { event: TimelineEvent }) {
   switch (event.event_type) {
+    case 'user_message':
     case 'user_prompt':
     case 'assistant_message':
       return <MarkdownView content={event.message_text ?? ''} />;
 
-    case 'tool_use': {
+    case 'tool_use':
+    case 'tool_result': {
       const toolName = event.tool_name?.toLowerCase() ?? '';
 
       if (toolName === 'edit') {
@@ -127,9 +133,11 @@ function DetailContent({ event }: { event: TimelineEvent }) {
     }
 
     case 'permission':
+    case 'permission_request':
       return <PermissionInfo event={event} />;
 
     case 'agent_stop':
+    case 'subagent_stop':
       return <MarkdownView content={event.message_text ?? ''} />;
 
     default:

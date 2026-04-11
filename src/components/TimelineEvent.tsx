@@ -16,13 +16,21 @@ function getIcon(eventType: string, toolName?: string | null): string {
     case 'assistant':
       return '🤖';
     case 'tool_use':
+    case 'tool_result':
       return getToolIcon(toolName ?? '');
     case 'permission':
+    case 'permission_request':
       return '🔒';
     case 'agent_start':
+    case 'subagent_start':
       return '🔀';
     case 'agent_stop':
+    case 'subagent_stop':
       return '⏹';
+    case 'task_created':
+      return '📋';
+    case 'task_completed':
+      return '✅';
     default:
       return '•';
   }
@@ -52,22 +60,30 @@ function getSummary(event: TimelineEventType): { title: string; subtitle?: strin
     return { title: text.slice(0, 120) || '(empty)' };
   }
 
-  if (event_type === 'permission') {
+  if (event_type === 'permission' || event_type === 'permission_request') {
     let parsed: Record<string, unknown> = {};
     try { parsed = JSON.parse(tool_input ?? '{}'); } catch { /* ignore */ }
     const tn = (parsed.tool_name as string) ?? tool_name ?? 'unknown';
     return { title: `Permission: ${tn}` };
   }
 
-  if (event_type === 'agent_start') {
+  if (event_type === 'agent_start' || event_type === 'subagent_start') {
     return { title: `Agent started` };
   }
 
-  if (event_type === 'agent_stop') {
+  if (event_type === 'agent_stop' || event_type === 'subagent_stop') {
     return { title: `Agent finished` };
   }
 
-  if (event_type === 'tool_use') {
+  if (event_type === 'task_created') {
+    return { title: 'Task created' };
+  }
+
+  if (event_type === 'task_completed') {
+    return { title: 'Task completed' };
+  }
+
+  if (event_type === 'tool_use' || event_type === 'tool_result') {
     const name = tool_name ?? 'unknown';
     const nameLower = name.toLowerCase();
 
@@ -130,7 +146,7 @@ export default function TimelineEvent({ event, selected, onSelect }: TimelineEve
   const icon = getIcon(event.event_type, event.tool_name);
   const { title, subtitle } = getSummary(event);
   const timestamp = formatTimestamp(event.timestamp);
-  const isPendingPermission = event.event_type === 'permission' && event.status === 'pending';
+  const isPendingPermission = (event.event_type === 'permission' || event.event_type === 'permission_request') && event.status === 'pending';
 
   const statusClass =
     event.status === 'error'
