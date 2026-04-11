@@ -764,8 +764,4 @@ body {
   to { transform: rotate(360deg); }
 }
 
-/* Streaming partial response */
-.streaming-bubble {
-  border-left: 2px solid var(--text-accent);
-  opacity: 0.9;
-}
+/* Streaming partial response — looks identical to final assistant bubble */

@@ -14,6 +14,8 @@ import './App.css';
 export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
+  // Track the event ID that "replaces" streaming — we hide it briefly to avoid the jump
+  const [hiddenEventId, setHiddenEventId] = useState<number | null>(null);
   const { events, addEvent, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onStreaming = useCallback((text: string) => {
@@ -21,16 +23,29 @@ export default function App() {
   }, []);
 
   const onStreamingDone = useCallback(() => {
-    setStreamingText(null);
+    // Don't clear streaming here — let the assistant_message event handle it
   }, []);
 
-  // Also clear streaming when we get an assistant_message event (the final response)
   const onEvent = useCallback((event: TimelineEvent) => {
     if (event.event_type === 'assistant_message') {
-      setStreamingText(null);
+      if (streamingText) {
+        // Streaming was active — smoothly transition:
+        // 1. Update streaming bubble to show the final text
+        // 2. Hide the real event briefly
+        // 3. After a short delay, clear streaming and show the real event
+        setStreamingText(event.message_text || '');
+        setHiddenEventId(event.id);
+        addEvent(event);
+        // After a brief moment, swap from streaming to real event
+        setTimeout(() => {
+          setStreamingText(null);
+          setHiddenEventId(null);
+        }, 150);
+        return;
+      }
     }
     addEvent(event);
-  }, [addEvent]);
+  }, [addEvent, streamingText]);
 
   const { connected } = useWebSocket({ onEvent, onStreaming, onStreamingDone, session, setSession });
 
@@ -107,14 +122,18 @@ export default function App() {
             <div className="chat-empty">Waiting for messages...</div>
           )}
 
-          {events.map((event) => (
-            <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
-          ))}
+          {events.map((event) => {
+            // Hide the event that's being replaced by streaming (during transition)
+            if (event.id === hiddenEventId) return null;
+            return (
+              <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
+            );
+          })}
 
-          {/* Streaming partial response */}
+          {/* Streaming partial response — replaces thinking dots */}
           {streamingText && (
             <div className="chat-message assistant">
-              <div className="message-bubble assistant-bubble streaming-bubble">
+              <div className="message-bubble assistant-bubble">
                 <MarkdownView content={streamingText} />
               </div>
             </div>
