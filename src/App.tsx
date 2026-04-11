@@ -130,10 +130,10 @@ export default function App() {
             );
           })}
 
-          {/* Streaming partial response — replaces thinking dots */}
+          {/* Streaming partial response — uses same structure as ChatMessage assistant */}
           {streamingText && (
-            <div className="chat-message assistant">
-              <div className="message-bubble assistant-bubble">
+            <div className="chat-row chat-row--assistant">
+              <div className="chat-bubble chat-bubble--assistant">
                 <MarkdownView content={streamingText} />
               </div>
             </div>
