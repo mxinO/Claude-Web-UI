@@ -15,6 +15,8 @@ const PORT = parseInt(process.env.PORT || '3001');
 const HOST = process.env.HOST || '0.0.0.0';
 const MOCK = process.argv.includes('--mock');
 const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
+// Working directory for Claude — pass as argument after flags, or use CWD
+const CLAUDE_CWD = process.argv.find((a, i) => i > 1 && !a.startsWith('-')) || process.cwd();
 
 // --- Database ---
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'claude-web-ui.db');
@@ -63,11 +65,11 @@ server.listen(PORT, HOST, () => {
     console.log(`tmux session "${TMUX_SESSION}" already running — attaching hooks to it`);
   } else {
     try {
-      startClaudeSession();
-      console.log(`Started Claude Code in tmux session "${TMUX_SESSION}"`);
+      startClaudeSession('', CLAUDE_CWD);
+      console.log(`Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
     } catch (err) {
       console.error('Failed to start Claude tmux session:', err);
-      console.error('You can start it manually: tmux new-session -d -s claude "claude"');
+      console.error(`You can start it manually: tmux new-session -d -s ${TMUX_SESSION} -c "${CLAUDE_CWD}" "claude"`);
     }
   }
 

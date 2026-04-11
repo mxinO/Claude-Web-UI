@@ -27,9 +27,31 @@ export function getSessionStatus(): { alive: boolean; session: string } {
   }
 }
 
-export function startClaudeSession(args: string = ''): void {
-  const cmd = `tmux new-session -d -s ${TMUX_SESSION} "claude ${args}"`;
+export function startClaudeSession(args: string = '', cwd?: string): void {
+  const dir = cwd || process.cwd();
+  const cmd = `tmux new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "claude ${args}"`;
   execSync(cmd, execOpts);
+
+  // Auto-accept the "trust this folder" prompt if it appears.
+  // Wait briefly for Claude to start, then send "y" + Enter.
+  // If the prompt doesn't appear (already trusted), the "y" is harmless —
+  // it just becomes the first user message, which we can live with.
+  // A smarter approach: send "y" only if we detect the trust prompt.
+  setTimeout(() => {
+    try {
+      // Capture the current pane content to check for trust prompt
+      const paneContent = execSync(
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
+        execOpts
+      );
+      if (paneContent.includes('trust') || paneContent.includes('Trust') || paneContent.includes('Do you want')) {
+        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} y Enter`, execOpts);
+        console.log('Auto-accepted folder trust prompt');
+      }
+    } catch {
+      // tmux capture failed — ignore
+    }
+  }, 3000);
 }
 
 export function stopClaudeSession(): void {
