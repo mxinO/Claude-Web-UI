@@ -164,42 +164,55 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   });
 
   // ── /pre-tool-use ────────────────────────────────────────────────────────
+  // Don't create a DB event for PreToolUse — only snapshot files for later.
+  // The tool_use_id links PreToolUse to PostToolUse.
+  const pendingSnapshots = new Map<string, { fileBefore: string | null; sessionId: string }>();
+
   app.post('/hooks/pre-tool-use', (req: Request, res: Response) => {
-    const { session_id, cwd, tool_name, tool_input, agent_id, agent_type } = req.body as {
+    const { session_id, cwd, tool_name, tool_input, tool_use_id } = req.body as {
       session_id?: string;
       cwd?: string;
       tool_name?: string;
       tool_input?: Record<string, unknown>;
-      agent_id?: string;
-      agent_type?: string;
+      tool_use_id?: string;
     };
     if (!session_id) {
       res.status(400).json({ error: 'session_id is required' });
       return;
     }
-    ensureSession(session_id, cwd);
 
+    // Snapshot file before Write overwrites it
     let fileBefore: string | null = null;
     if (tool_name === 'Write' && tool_input && typeof tool_input.file_path === 'string') {
       fileBefore = snapshotFile(tool_input.file_path);
     }
 
-    const eventId = insertEvent(session_id, 'tool_use', {
+    // Store snapshot keyed by tool_use_id (or fallback key)
+    const key = tool_use_id || `${session_id}_${tool_name}_${Date.now()}`;
+    pendingSnapshots.set(key, { fileBefore, sessionId: session_id });
+
+    // Broadcast a lightweight "running" indicator (no DB event)
+    bc.broadcastEvent(session_id, {
+      id: -1, // sentinel: frontend should show as transient
+      session_id,
+      timestamp: new Date().toISOString(),
+      event_type: 'tool_running',
+      agent_id: null,
+      agent_type: null,
       tool_name: tool_name ?? null,
       tool_input: tool_input ? JSON.stringify(tool_input) : null,
-      status: 'pending',
-      agent_id: agent_id ?? null,
-      agent_type: agent_type ?? null,
-      file_before: fileBefore,
+      tool_response: null,
+      message_text: null,
+      status: 'running',
+      file_before: null,
     });
-    const event = getEvent(eventId)!;
-    bc.broadcastEvent(session_id, event);
-    res.json({ ok: true, event_id: eventId });
+
+    res.json({ ok: true });
   });
 
   // ── /post-tool-use ───────────────────────────────────────────────────────
   app.post('/hooks/post-tool-use', (req: Request, res: Response) => {
-    const { session_id, cwd, tool_name, tool_input, tool_response, agent_id, agent_type, pre_event_id } =
+    const { session_id, cwd, tool_name, tool_input, tool_response, agent_id, agent_type, tool_use_id } =
       req.body as {
         session_id?: string;
         cwd?: string;
@@ -208,7 +221,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
         tool_response?: Record<string, unknown>;
         agent_id?: string;
         agent_type?: string;
-        pre_event_id?: number;
+        tool_use_id?: string;
       };
     if (!session_id) {
       res.status(400).json({ error: 'session_id is required' });
@@ -216,17 +229,16 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     ensureSession(session_id, cwd);
 
-    // Update pre-tool-use event to completed if we have it
-    if (pre_event_id) {
-      updateEvent(pre_event_id, {
-        status: 'completed',
-        tool_response: tool_response ? JSON.stringify(tool_response) : null,
-      });
+    // Retrieve file snapshot from PreToolUse (for Write tool)
+    let fileBefore: string | null = null;
+    if (tool_use_id && pendingSnapshots.has(tool_use_id)) {
+      fileBefore = pendingSnapshots.get(tool_use_id)!.fileBefore;
+      pendingSnapshots.delete(tool_use_id);
     }
 
     // Reconstruct file_before for Edit tool
-    let fileBefore: string | null = null;
     if (
+      !fileBefore &&
       tool_name === 'Edit' &&
       tool_input &&
       typeof tool_input.file_path === 'string' &&

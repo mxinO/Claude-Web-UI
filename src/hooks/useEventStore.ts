@@ -43,6 +43,25 @@ export function useEventStore(): UseEventStoreReturn {
 
   const addEvent = useCallback((event: TimelineEvent) => {
     setEvents(prev => {
+      // tool_running (id=-1) is a transient indicator — show it but replace when real event arrives
+      if (event.event_type === 'tool_running') {
+        // Remove any existing tool_running for the same tool_name, then append
+        const filtered = prev.filter(e => e.event_type !== 'tool_running');
+        return [...filtered, event];
+      }
+
+      // When a real tool_result arrives, remove the transient tool_running
+      if (event.event_type === 'tool_result' || (event.event_type === 'tool_use' && event.status === 'completed')) {
+        const filtered = prev.filter(e => e.event_type !== 'tool_running');
+        if (filtered.some(e => e.id === event.id)) return filtered;
+        const next = [...filtered, event];
+        if (next.length > MAX_EVENTS) {
+          setHasMore(true);
+          return next.slice(next.length - MAX_EVENTS);
+        }
+        return next;
+      }
+
       // Deduplicate by id
       if (prev.some(e => e.id === event.id)) {
         return prev;

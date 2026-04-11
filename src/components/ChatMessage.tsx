@@ -98,7 +98,7 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
   }
 
   // ── Tool use / tool result ─────────────────────────────────
-  if (event_type === 'tool_use' || event_type === 'tool_result') {
+  if (event_type === 'tool_use' || event_type === 'tool_result' || event_type === 'tool_running') {
     const icon = getToolIcon(tool_name ?? '');
     const summary = getToolSummary(event);
     const isPending = event.status === 'pending' || event.status === 'running';
