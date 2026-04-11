@@ -171,7 +171,19 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   // ── /pre-tool-use ────────────────────────────────────────────────────────
   // Don't create a DB event for PreToolUse — only snapshot files for later.
   // The tool_use_id links PreToolUse to PostToolUse.
-  const pendingSnapshots = new Map<string, { fileBefore: string | null; sessionId: string }>();
+  const pendingSnapshots = new Map<string, { fileBefore: string | null; sessionId: string; ts: number }>();
+
+  // Periodically clean up entries older than 10 minutes to prevent unbounded growth
+  const SNAPSHOT_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  const snapshotCleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of pendingSnapshots) {
+      if (now - entry.ts > SNAPSHOT_TTL_MS) {
+        pendingSnapshots.delete(key);
+      }
+    }
+  }, 60_000); // run every 60 seconds
+  snapshotCleanupTimer.unref?.(); // don't keep process alive
 
   app.post('/hooks/pre-tool-use', (req: Request, res: Response) => {
     const { session_id, cwd, tool_name, tool_input, tool_use_id } = req.body as {
@@ -196,7 +208,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
 
     // Store snapshot keyed by tool_use_id (or fallback key)
     const key = tool_use_id || `${session_id}_${tool_name}_${Date.now()}`;
-    pendingSnapshots.set(key, { fileBefore, sessionId: session_id });
+    pendingSnapshots.set(key, { fileBefore, sessionId: session_id, ts: Date.now() });
 
     // Broadcast a lightweight "running" indicator (no DB event)
     bc.broadcastEvent(session_id, {

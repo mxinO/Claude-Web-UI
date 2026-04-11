@@ -2,6 +2,7 @@ import { useEffect, useCallback, lazy, Suspense } from 'react';
 import type { TimelineEvent } from '../types';
 import { MarkdownView } from './MarkdownView';
 import { BashOutput } from './BashOutput';
+import { detectLanguage } from '../lib/detectLanguage';
 
 // Lazy-load DiffViewer so Monaco (~5 MB) only loads when the modal opens
 const LazyDiffViewer = lazy(() =>
@@ -42,17 +43,7 @@ function EditDiff({ event }: { event: TimelineEvent }) {
   const oldString = (input.old_string as string) ?? '';
   const newString = (input.new_string as string) ?? '';
 
-  // We need to detect language synchronously for the initial render;
-  // use inline detection matching DiffViewer's logic
-  const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  const langMap: Record<string, string> = {
-    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-    py: 'python', rs: 'rust', go: 'go', java: 'java', c: 'c', cpp: 'cpp',
-    h: 'c', hpp: 'cpp', css: 'css', html: 'html', json: 'json', yaml: 'yaml',
-    yml: 'yaml', md: 'markdown', sql: 'sql', sh: 'shell', bash: 'shell',
-    toml: 'toml', xml: 'xml', rb: 'ruby', php: 'php',
-  };
-  const language = langMap[ext] || 'plaintext';
+  const language = detectLanguage(filePath);
 
   if (event.file_before != null) {
     const modified = event.file_before.replace(oldString, newString);
@@ -74,14 +65,7 @@ function WriteDiff({ event }: { event: TimelineEvent }) {
   const input = parseToolInput(event.tool_input);
   const filePath = (input.file_path as string) || '';
   const content = (input.content as string) ?? '';
-  const ext = filePath.split('.').pop()?.toLowerCase() || '';
-  const langMap: Record<string, string> = {
-    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-    py: 'python', rs: 'rust', go: 'go', java: 'java', c: 'c', cpp: 'cpp',
-    css: 'css', html: 'html', json: 'json', yaml: 'yaml', yml: 'yaml',
-    md: 'markdown', sh: 'shell', bash: 'shell',
-  };
-  const language = langMap[ext] || 'plaintext';
+  const language = detectLanguage(filePath);
 
   return (
     <Suspense fallback={<div className="modal-loading">Loading diff editor...</div>}>

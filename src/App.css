@@ -654,34 +654,6 @@ body {
   border-radius: 3px;
 }
 
-/* ── Diff / file edit view ─────────────────────────────────────── */
-
-.diff-view {
-  font-family: Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  overflow-x: auto;
-}
-
-.diff-line {
-  padding: 0 8px;
-  white-space: pre;
-}
-
-.diff-line.added {
-  background: rgba(78, 201, 176, 0.1);
-  color: var(--green);
-}
-
-.diff-line.removed {
-  background: rgba(244, 71, 71, 0.1);
-  color: var(--red);
-}
-
-.diff-line.context {
-  color: var(--text-secondary);
-}
-
 /* ── Utility ───────────────────────────────────────────────────── */
 
 .label {
@@ -702,10 +674,6 @@ body {
   color: var(--text-secondary);
 }
 
-.tag.green { color: var(--green); border-color: var(--green); }
-.tag.red   { color: var(--red);   border-color: var(--red);   }
-.tag.yellow{ color: var(--yellow);border-color: var(--yellow);}
-.tag.purple{ color: var(--purple);border-color: var(--purple);}
 .tag.blue  { color: var(--text-accent); border-color: var(--text-accent); }
 
 /* ── Thinking indicator ────────────────────────────────────────── */

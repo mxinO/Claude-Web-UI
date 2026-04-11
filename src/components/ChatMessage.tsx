@@ -72,7 +72,7 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
   const time = useMemo(() => formatTime(event.timestamp), [event.timestamp]);
 
   // ── User message ────────────────────────────────────────────
-  if (event_type === 'user_message' || event_type === 'human') {
+  if (event_type === 'user_message') {
     return (
       <div className="chat-row chat-row--user">
         <div className="chat-bubble chat-bubble--user">
@@ -84,7 +84,7 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
   }
 
   // ── Assistant message ───────────────────────────────────────
-  if (event_type === 'assistant_message' || event_type === 'assistant') {
+  if (event_type === 'assistant_message') {
     const text = event.message_text ?? '';
     if (!text.trim()) return null; // skip empty assistant messages
     return (

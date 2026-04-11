@@ -180,13 +180,13 @@ export function getReconnectSummary(sessionId: string, afterEventId: number): Re
     `SELECT COUNT(*) as cnt FROM events WHERE session_id = ? AND id > ?`
   ).get(sessionId, afterEventId) as { cnt: number };
 
-  // Edits: tool_use events where tool_name IN ('Edit', 'Write', 'MultiEdit')
+  // Edits: tool_use/tool_result events where tool_name IN ('Edit', 'Write', 'MultiEdit')
   const editRows = d.prepare(`
     SELECT id, tool_input, tool_name, file_before
     FROM events
     WHERE session_id = ?
       AND id > ?
-      AND event_type = 'tool_use'
+      AND event_type IN ('tool_use', 'tool_result')
       AND tool_name IN ('Edit', 'Write', 'MultiEdit')
   `).all(sessionId, afterEventId) as Array<{
     id: number;
@@ -219,13 +219,13 @@ export function getReconnectSummary(sessionId: string, afterEventId: number): Re
     return { event_id: row.id, file_path, additions, deletions, is_new };
   });
 
-  // Commands: Bash tool uses
+  // Commands: Bash tool uses/results
   const commandRows = d.prepare(`
     SELECT id, tool_input, status
     FROM events
     WHERE session_id = ?
       AND id > ?
-      AND event_type = 'tool_use'
+      AND event_type IN ('tool_use', 'tool_result')
       AND tool_name = 'Bash'
   `).all(sessionId, afterEventId) as Array<{
     id: number;
@@ -261,7 +261,7 @@ export function getReconnectSummary(sessionId: string, afterEventId: number): Re
   const agents = agentRows.map((row) => {
     const toolCountRow = d.prepare(`
       SELECT COUNT(*) as cnt FROM events
-      WHERE session_id = ? AND agent_id = ? AND event_type = 'tool_use'
+      WHERE session_id = ? AND agent_id = ? AND event_type IN ('tool_use', 'tool_result')
     `).get(sessionId, row.agent_id) as { cnt: number };
     return {
       agent_id: row.agent_id,

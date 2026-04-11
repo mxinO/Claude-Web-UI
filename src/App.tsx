@@ -21,10 +21,6 @@ export default function App() {
     setStreamingText(text);
   }, []);
 
-  const onStreamingDone = useCallback(() => {
-    // Let the assistant_message event handle cleanup
-  }, []);
-
   const onEvent = useCallback((event: TimelineEvent) => {
     if (event.event_type === 'assistant_message') {
       // Clear streaming — the final message takes over
@@ -34,7 +30,7 @@ export default function App() {
     addEvent(event);
   }, [addEvent]);
 
-  const { connected } = useWebSocket({ onEvent, onStreaming, onStreamingDone, session, setSession });
+  const { connected } = useWebSocket({ onEvent, onStreaming, session, setSession });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -84,7 +80,7 @@ export default function App() {
   // Thinking state: last event is user message AND no streaming yet
   const isThinking = events.length > 0 && !streamingText && (() => {
     const last = events[events.length - 1];
-    return last.event_type === 'user_message' || last.event_type === 'human';
+    return last.event_type === 'user_message';
   })();
 
   return (

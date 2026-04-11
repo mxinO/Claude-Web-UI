@@ -8,7 +8,7 @@ import type { Express } from 'express';
 import { createServer } from 'http';
 
 import { initDb, closeDb, getSession, getEvents, getEvent, getPermissionRequest } from '../../server/db.js';
-import { registerHookRoutes } from '../../server/hooks.js';
+import { registerHookRoutes, setManagedSessionId } from '../../server/hooks.js';
 import type { BroadcastFns } from '../../server/hooks.js';
 
 function tmpDbPath() {
@@ -42,6 +42,9 @@ describe('Hook Routes', () => {
   let bc: BroadcastFns;
 
   beforeEach(async () => {
+    // Reset module-level managed session state between tests
+    setManagedSessionId(null);
+
     dbPath = tmpDbPath();
     initDb(dbPath);
 
@@ -203,7 +206,7 @@ describe('Hook Routes', () => {
   // ── /pre-tool-use ─────────────────────────────────────────────────────────
 
   describe('POST /hooks/pre-tool-use', () => {
-    it('stores pending tool_use event', async () => {
+    it('returns ok without creating a DB event', async () => {
       const sessionId = randomUUID();
       await post('/hooks/session-start', { session_id: sessionId, hook_event_name: 'SessionStart' });
       const { status, body } = await post('/hooks/pre-tool-use', {
@@ -214,45 +217,69 @@ describe('Hook Routes', () => {
       });
       expect(status).toBe(200);
       expect(body.ok).toBe(true);
-      expect(body.event_id).toBeDefined();
+      expect(body.event_id).toBeUndefined();
 
+      // No tool_use event should be created by pre-tool-use
       const events = getEvents(sessionId);
       const toolUse = events.find((e) => e.event_type === 'tool_use');
-      expect(toolUse).toBeDefined();
-      expect(toolUse!.tool_name).toBe('Bash');
-      expect(toolUse!.status).toBe('pending');
+      expect(toolUse).toBeUndefined();
     });
 
-    it('snapshots file content for Write tool if file exists and is small', async () => {
+    it('snapshots file content for Write tool and passes it to post-tool-use', async () => {
       const tmpFile = path.join(os.tmpdir(), `test-snap-${randomUUID()}.txt`);
       fs.writeFileSync(tmpFile, 'original content');
+      const toolUseId = randomUUID();
 
       const sessionId = randomUUID();
       await post('/hooks/session-start', { session_id: sessionId, hook_event_name: 'SessionStart' });
-      const { body } = await post('/hooks/pre-tool-use', {
+      await post('/hooks/pre-tool-use', {
         session_id: sessionId,
         hook_event_name: 'PreToolUse',
         tool_name: 'Write',
         tool_input: { file_path: tmpFile, content: 'new content' },
+        tool_use_id: toolUseId,
       });
 
-      const ev = getEvent(body.event_id);
+      // Now overwrite the file and call post-tool-use
+      fs.writeFileSync(tmpFile, 'new content');
+      const { body: postBody } = await post('/hooks/post-tool-use', {
+        session_id: sessionId,
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Write',
+        tool_input: { file_path: tmpFile, content: 'new content' },
+        tool_response: { success: true },
+        tool_use_id: toolUseId,
+      });
+
+      const ev = getEvent(postBody.event_id);
       expect(ev!.file_before).toBe('original content');
 
       fs.unlinkSync(tmpFile);
     });
 
     it('does not snapshot for Write if file does not exist', async () => {
+      const toolUseId = randomUUID();
       const sessionId = randomUUID();
       await post('/hooks/session-start', { session_id: sessionId, hook_event_name: 'SessionStart' });
-      const { body } = await post('/hooks/pre-tool-use', {
+      await post('/hooks/pre-tool-use', {
         session_id: sessionId,
         hook_event_name: 'PreToolUse',
         tool_name: 'Write',
         tool_input: { file_path: '/nonexistent/file.txt', content: 'hello' },
+        tool_use_id: toolUseId,
       });
 
-      const ev = getEvent(body.event_id);
+      // file_before should be null when the file doesn't exist
+      const { body: postBody } = await post('/hooks/post-tool-use', {
+        session_id: sessionId,
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Write',
+        tool_input: { file_path: '/nonexistent/file.txt', content: 'hello' },
+        tool_response: { success: true },
+        tool_use_id: toolUseId,
+      });
+
+      const ev = getEvent(postBody.event_id);
       expect(ev!.file_before).toBeNull();
     });
   });
@@ -264,14 +291,13 @@ describe('Hook Routes', () => {
       const sessionId = randomUUID();
       await post('/hooks/session-start', { session_id: sessionId, hook_event_name: 'SessionStart' });
 
-      // First create a pre-tool event
-      const preRes = await post('/hooks/pre-tool-use', {
+      // Pre-tool-use no longer creates a DB event, just call it for completeness
+      await post('/hooks/pre-tool-use', {
         session_id: sessionId,
         hook_event_name: 'PreToolUse',
         tool_name: 'Bash',
         tool_input: { command: 'echo hello' },
       });
-      const preEventId = preRes.body.event_id;
 
       const { status, body } = await post('/hooks/post-tool-use', {
         session_id: sessionId,
@@ -279,7 +305,6 @@ describe('Hook Routes', () => {
         tool_name: 'Bash',
         tool_input: { command: 'echo hello' },
         tool_response: { output: 'hello\n', exit_code: 0 },
-        pre_event_id: preEventId,
       });
       expect(status).toBe(200);
       expect(body.ok).toBe(true);

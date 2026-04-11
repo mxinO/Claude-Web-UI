@@ -15,14 +15,12 @@
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "express": "^4.21.0",
-    "uuid": "^10.0.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@monaco-editor/react": "^4.6.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/express": "^4.17.21",
-    "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^9.0.0",
