@@ -766,3 +766,77 @@ body {
 }
 
 /* Streaming partial response — looks identical to final assistant bubble */
+
+/* ── Streaming card ─────────────────────────────────────────────── */
+
+.streaming-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--text-accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  max-width: 85%;
+  cursor: pointer;
+  animation: streaming-pulse 2s ease-in-out infinite;
+  transition: background 0.15s;
+}
+
+.streaming-card:hover {
+  background: var(--bg-hover);
+}
+
+@keyframes streaming-pulse {
+  0%, 100% { border-color: var(--text-accent); }
+  50% { border-color: var(--border); }
+}
+
+.streaming-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.streaming-card-icon {
+  color: var(--text-accent);
+  animation: spin 2s linear infinite;
+}
+
+.streaming-card-label {
+  color: var(--text-accent);
+  font-weight: 600;
+}
+
+.streaming-card-meta {
+  color: var(--text-secondary);
+  margin-left: auto;
+  font-size: 11px;
+}
+
+.streaming-card-snippet {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.streaming-card-footer {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  opacity: 0.6;
+}
+
+.streaming-expanded-text {
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  margin: 0;
+}

@@ -5,18 +5,16 @@ import DetailModal from './components/DetailModal';
 import InputBox from './components/InputBox';
 import ReconnectSummaryWidget from './components/ReconnectSummary';
 import ThinkingIndicator from './components/ThinkingIndicator';
-import { MarkdownView } from './components/MarkdownView';
+import StreamingCard from './components/StreamingCard';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
-import { completeMarkdown } from './lib/completeMarkdown';
 import './App.css';
 
 export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
-  // Track the event ID that "replaces" streaming — we hide it briefly to avoid the jump
-  const [hiddenEventId, setHiddenEventId] = useState<number | null>(null);
+  const [streamingExpanded, setStreamingExpanded] = useState(false);
   const { events, addEvent, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onStreaming = useCallback((text: string) => {
@@ -24,29 +22,17 @@ export default function App() {
   }, []);
 
   const onStreamingDone = useCallback(() => {
-    // Don't clear streaming here — let the assistant_message event handle it
+    // Let the assistant_message event handle cleanup
   }, []);
 
   const onEvent = useCallback((event: TimelineEvent) => {
     if (event.event_type === 'assistant_message') {
-      if (streamingText) {
-        // Streaming was active — smoothly transition:
-        // 1. Update streaming bubble to show the final text
-        // 2. Hide the real event briefly
-        // 3. After a short delay, clear streaming and show the real event
-        setStreamingText(event.message_text || '');
-        setHiddenEventId(event.id);
-        addEvent(event);
-        // After a brief moment, swap from streaming to real event
-        setTimeout(() => {
-          setStreamingText(null);
-          setHiddenEventId(null);
-        }, 150);
-        return;
-      }
+      // Clear streaming — the final message takes over
+      setStreamingText(null);
+      setStreamingExpanded(false);
     }
     addEvent(event);
-  }, [addEvent, streamingText]);
+  }, [addEvent]);
 
   const { connected } = useWebSocket({ onEvent, onStreaming, onStreamingDone, session, setSession });
 
@@ -55,21 +41,23 @@ export default function App() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const prevEventCountRef = useRef(0);
-  const prevStreamingRef = useRef<string | null>(null);
 
-  // Auto-scroll to bottom on new events or streaming updates
+  // Auto-scroll to bottom on new events
   useEffect(() => {
     const newCount = events.length;
-    const streamChanged = streamingText !== prevStreamingRef.current;
-    prevStreamingRef.current = streamingText;
-
-    if (newCount === prevEventCountRef.current && !streamChanged) return;
+    if (newCount === prevEventCountRef.current) return;
     prevEventCountRef.current = newCount;
-
     if (!userScrolledUpRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [events, streamingText]);
+  }, [events]);
+
+  // Also scroll when streaming card appears
+  useEffect(() => {
+    if (streamingText && !userScrolledUpRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [streamingText]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -93,7 +81,7 @@ export default function App() {
   const handleCloseDetail = useCallback(() => setModalEvent(null), []);
   const handleReconnectSelect = useCallback((event: TimelineEvent) => setModalEvent(event), []);
 
-  // Determine if we're waiting for a response (thinking state)
+  // Thinking state: last event is user message AND no streaming yet
   const isThinking = events.length > 0 && !streamingText && (() => {
     const last = events[events.length - 1];
     return last.event_type === 'user_message' || last.event_type === 'human';
@@ -123,24 +111,19 @@ export default function App() {
             <div className="chat-empty">Waiting for messages...</div>
           )}
 
-          {events.map((event) => {
-            // Hide the event that's being replaced by streaming (during transition)
-            if (event.id === hiddenEventId) return null;
-            return (
-              <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
-            );
-          })}
+          {events.map((event) => (
+            <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
+          ))}
 
-          {/* Streaming partial response — uses same structure as ChatMessage assistant */}
+          {/* Streaming: compact card showing work in progress */}
           {streamingText && (
-            <div className="chat-row chat-row--assistant">
-              <div className="chat-bubble chat-bubble--assistant">
-                <MarkdownView content={completeMarkdown(streamingText)} />
-              </div>
-            </div>
+            <StreamingCard
+              text={streamingText}
+              onExpand={() => setStreamingExpanded(true)}
+            />
           )}
 
-          {/* Thinking dots — only show when waiting and not yet streaming */}
+          {/* Thinking dots — only before streaming starts */}
           {isThinking && <ThinkingIndicator />}
 
           <div ref={bottomRef} />
@@ -149,8 +132,24 @@ export default function App() {
 
       <InputBox />
 
+      {/* Detail modal for tool calls */}
       {modalEvent && (
         <DetailModal event={modalEvent} onClose={handleCloseDetail} />
+      )}
+
+      {/* Streaming expanded popup */}
+      {streamingExpanded && streamingText && (
+        <div className="modal-overlay" onClick={() => setStreamingExpanded(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Responding...</span>
+              <button className="modal-close" onClick={() => setStreamingExpanded(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <pre className="streaming-expanded-text">{streamingText}</pre>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
