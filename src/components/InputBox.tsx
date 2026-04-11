@@ -1,12 +1,26 @@
-import { useState, useRef, useCallback, KeyboardEvent } from 'react';
+import { useState, useRef, useCallback, KeyboardEvent, useEffect } from 'react';
 
 const MAX_HISTORY = 50;
+const MIN_ROWS = 1;
+const MAX_ROWS = 6;
+const LINE_HEIGHT = 20; // px
 
 export default function InputBox() {
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef(-1);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea height
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const scrollH = el.scrollHeight;
+    const maxH = LINE_HEIGHT * MAX_ROWS + 12; // 12px padding
+    el.style.height = `${Math.min(scrollH, maxH)}px`;
+  }, [value]);
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -22,17 +36,15 @@ export default function InputBox() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        // If tmux fails, fall back to mock mode — inject events directly
         if (data.error?.includes('Failed to send') || data.error?.includes('tmux')) {
-          setError('No tmux session — using mock mode');
+          setError('No tmux session \u2014 using mock mode');
           await simulateEvents(trimmed);
         } else {
           setError(data.error || `Error ${res.status}`);
-          return; // don't clear input on error
+          return;
         }
       }
 
-      // Success — clear input, add to history
       const hist = historyRef.current;
       if (hist[hist.length - 1] !== trimmed) {
         hist.push(trimmed);
@@ -42,12 +54,12 @@ export default function InputBox() {
       setValue('');
     } catch (err) {
       setError(`Network error: ${err}`);
-      // don't clear input
     }
   }, []);
 
   const onKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLInputElement>) => {
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Enter sends, Shift+Enter inserts newline
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         send(value);
@@ -55,7 +67,9 @@ export default function InputBox() {
       }
 
       const hist = historyRef.current;
-      if (e.key === 'ArrowUp') {
+      // Only use arrow-key history when the textarea has a single line
+      const isMultiline = value.includes('\n');
+      if (!isMultiline && e.key === 'ArrowUp') {
         e.preventDefault();
         if (hist.length === 0) return;
         if (historyIndexRef.current === -1) {
@@ -64,7 +78,7 @@ export default function InputBox() {
           historyIndexRef.current -= 1;
         }
         setValue(hist[historyIndexRef.current]);
-      } else if (e.key === 'ArrowDown') {
+      } else if (!isMultiline && e.key === 'ArrowDown') {
         e.preventDefault();
         if (historyIndexRef.current === -1) return;
         if (historyIndexRef.current < hist.length - 1) {
@@ -76,22 +90,24 @@ export default function InputBox() {
         }
       }
     },
-    [value, send]
+    [value, send],
   );
 
   return (
     <div className="input-container">
       {error && (
-        <div style={{ fontSize: 11, color: 'var(--yellow)', padding: '2px 0', marginBottom: 2 }}>
+        <div style={{ fontSize: 11, color: 'var(--yellow)', padding: '2px 0', marginBottom: 2, width: '100%' }}>
           {error}
         </div>
       )}
-      <input
+      <textarea
+        ref={textareaRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Type a message or /command..."
+        placeholder="Type a message or /command... (Shift+Enter for newline)"
         spellCheck={false}
+        rows={MIN_ROWS}
       />
     </div>
   );
@@ -99,7 +115,6 @@ export default function InputBox() {
 
 /** Mock mode: simulate hook events directly when no tmux session */
 async function simulateEvents(text: string) {
-  // Ensure a session exists
   let sessionId = 'mock-session';
   try {
     const sessRes = await fetch('/api/sessions/latest');
@@ -109,28 +124,25 @@ async function simulateEvents(text: string) {
     }
   } catch { /* ignore */ }
 
-  // Create session if needed
   await fetch('/hooks/session-start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, model: 'mock', cwd: '/mock' }),
   }).catch(() => {});
 
-  // Send user prompt
   await fetch('/hooks/user-prompt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, user_input: text }),
   });
 
-  // Simulate assistant response after a small delay
   setTimeout(async () => {
     await fetch('/hooks/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session_id: sessionId,
-        assistant_message: `[Mock] You said: "${text}". This is mock mode — no Claude Code tmux session is running. Events appear in the timeline to test the UI.`,
+        assistant_message: `[Mock] You said: "${text}". This is mock mode \u2014 no Claude Code tmux session is running.`,
         stop_reason: 'end_turn',
       }),
     });
