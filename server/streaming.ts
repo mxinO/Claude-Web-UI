@@ -106,16 +106,36 @@ function parseClaudeOutput(paneContent: string): string | null {
 
   if (responseLines.length === 0) return null;
 
-  // Clean up the response text
-  let text = responseLines.join('\n').trim();
+  // Claude Code's TUI indents response text with 2 spaces.
+  // Strip common leading whitespace to get clean text for markdown rendering.
+  let cleaned = responseLines
+    // Remove the response marker line (● or ✢ prefix)
+    .map(line => {
+      // First line often starts with ● or ✢
+      const markerMatch = line.match(/^\s*[●✢✶⚡]\s*/);
+      if (markerMatch) return line.slice(markerMatch[0].length);
+      return line;
+    })
+    // Remove status lines
+    .filter(line => !line.trim().match(/^(Flowing|Blanching|Thinking|Cooking|Simmering|Brewing)…$/i))
+    // Remove tip lines
+    .filter(line => !line.trim().startsWith('⎿'));
 
-  // Remove Claude's prefix markers (● or ✢ with status text)
-  text = text.replace(/^[●✢✶⚡]\s*/m, '');
-  // Remove "Flowing…", "Blanching…" etc status lines
-  text = text.replace(/^(Flowing|Blanching|Thinking|Cooking)…\s*/mi, '');
-  // Remove tip lines
-  text = text.replace(/^\s*⎿\s*Tip:.*$/m, '');
+  // Detect common indent (Claude Code uses 2-space indent for body text)
+  const nonEmptyLines = cleaned.filter(l => l.trim().length > 0);
+  if (nonEmptyLines.length > 0) {
+    const minIndent = Math.min(...nonEmptyLines.map(l => {
+      const match = l.match(/^( +)/);
+      return match ? match[1].length : 0;
+    }));
+    if (minIndent > 0) {
+      cleaned = cleaned.map(l => {
+        if (l.trim().length === 0) return '';
+        return l.slice(Math.min(minIndent, l.length - l.trimStart().length));
+      });
+    }
+  }
 
-  text = text.trim();
+  let text = cleaned.join('\n').trim();
   return text || null;
 }

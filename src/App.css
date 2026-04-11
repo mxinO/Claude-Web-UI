@@ -551,6 +551,7 @@ body {
 /* ── Markdown content ──────────────────────────────────────────── */
 
 .markdown-content {
+  font-size: inherit;
   line-height: 1.6;
   color: var(--text-primary);
 }
