@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { Router, Express } from 'express';
 import {
   listSessions,
@@ -169,6 +170,28 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     res.json(perm);
+  });
+
+  // Read a file on demand (for "expand full file" in diff viewer)
+  // Safety: only allow reading files within the managed session's cwd
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+  router.get('/file', (req, res) => {
+    const filePath = req.query.path as string;
+    if (!filePath) {
+      res.status(400).json({ error: 'path required' });
+      return;
+    }
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.size > MAX_FILE_SIZE) {
+        res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB, max 5MB)` });
+        return;
+      }
+      const content = fs.readFileSync(filePath, 'utf-8');
+      res.json({ path: filePath, content, size: stat.size });
+    } catch (err) {
+      res.status(404).json({ error: `Cannot read file: ${err}` });
+    }
   });
 
   app.use('/api', router);

@@ -49,20 +49,93 @@ function snapshotFile(filePath: string): string | null {
   }
 }
 
+const CONTEXT_LINES = 10;
+
 /**
- * Reconstruct the "before" state of a file by reversing an Edit operation.
- * Reads current file content, then replaces new_string with old_string.
+ * Build a context-only diff snippet for an Edit operation.
+ * Instead of storing the whole file, we store just the lines around the edit.
+ * Returns { before, after } snippets with CONTEXT_LINES of surrounding context,
+ * or null if the file can't be read.
  */
-function reconstructFileBefore(filePath: string, oldString: string, newString: string): string | null {
+function buildEditSnippet(
+  filePath: string, oldString: string, newString: string, replaceAll?: boolean
+): { before: string; after: string } | null {
   try {
     const current = fs.readFileSync(filePath, 'utf8');
-    // Reverse: replace newString back to oldString (first occurrence)
+    const lines = current.split('\n');
+
+    if (replaceAll) {
+      // For replace_all: reverse ALL occurrences to get the "before" file
+      const beforeContent = current.split(newString).join(oldString);
+      const beforeLines = beforeContent.split('\n');
+
+      // Find all changed line ranges
+      const changedLineNums = new Set<number>();
+      for (let i = 0; i < Math.max(lines.length, beforeLines.length); i++) {
+        if (lines[i] !== beforeLines[i]) changedLineNums.add(i);
+      }
+      if (changedLineNums.size === 0) return { before: oldString, after: newString };
+
+      // Build context window around all changes
+      const minLine = Math.max(0, Math.min(...changedLineNums) - CONTEXT_LINES);
+      const maxLine = Math.min(Math.max(lines.length, beforeLines.length) - 1, Math.max(...changedLineNums) + CONTEXT_LINES);
+
+      return {
+        before: beforeLines.slice(minLine, maxLine + 1).join('\n'),
+        after: lines.slice(minLine, maxLine + 1).join('\n'),
+      };
+    }
+
+    // Single replacement: find where newString is in the current file
     const idx = current.indexOf(newString);
-    if (idx === -1) return current; // can't reverse, return current as best effort
-    return current.slice(0, idx) + oldString + current.slice(idx + newString.length);
+    if (idx === -1) {
+      // Can't find the edit — fall back to just the strings
+      return { before: oldString, after: newString };
+    }
+
+    // Find line number of the edit
+    const editLineStart = current.slice(0, idx).split('\n').length - 1;
+    const editLineEnd = editLineStart + newString.split('\n').length - 1;
+
+    // Extract context window
+    const startLine = Math.max(0, editLineStart - CONTEXT_LINES);
+    const endLine = Math.min(lines.length - 1, editLineEnd + CONTEXT_LINES);
+
+    const afterSnippet = lines.slice(startLine, endLine + 1).join('\n');
+
+    // Reconstruct "before" snippet: replace newString with oldString in the window
+    const beforeContent = current.slice(0, idx) + oldString + current.slice(idx + newString.length);
+    const beforeLines = beforeContent.split('\n');
+    const beforeSnippet = beforeLines.slice(startLine, endLine + (oldString.split('\n').length - newString.split('\n').length) + 1).join('\n');
+
+    return { before: beforeSnippet, after: afterSnippet };
   } catch {
     return null;
   }
+}
+
+/**
+ * Build a snippet for a Write operation.
+ * For the "before" state, use the snapshot from PreToolUse (or empty for new files).
+ * Only store up to a preview — full file available on demand via API.
+ */
+const MAX_WRITE_PREVIEW_LINES = 50;
+
+function buildWriteSnippet(beforeContent: string | null, newContent: string): { before: string; after: string } {
+  const before = beforeContent || '';
+  const afterLines = newContent.split('\n');
+  const beforeLines = before.split('\n');
+
+  // If small enough, store the whole thing
+  if (afterLines.length <= MAX_WRITE_PREVIEW_LINES && beforeLines.length <= MAX_WRITE_PREVIEW_LINES) {
+    return { before, after: newContent };
+  }
+
+  // Otherwise store just the first N lines as preview
+  return {
+    before: beforeLines.slice(0, MAX_WRITE_PREVIEW_LINES).join('\n') + (beforeLines.length > MAX_WRITE_PREVIEW_LINES ? '\n... (truncated)' : ''),
+    after: afterLines.slice(0, MAX_WRITE_PREVIEW_LINES).join('\n') + (afterLines.length > MAX_WRITE_PREVIEW_LINES ? '\n... (truncated)' : ''),
+  };
 }
 
 export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
@@ -248,23 +321,37 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     ensureSession(session_id, cwd);
 
-    // Retrieve file snapshot from PreToolUse (for Write tool)
-    let fileBefore: string | null = null;
-    if (tool_use_id && pendingSnapshots.has(tool_use_id)) {
-      fileBefore = pendingSnapshots.get(tool_use_id)!.fileBefore;
-      pendingSnapshots.delete(tool_use_id);
+    // Build diff snippet for Edit/Write tools
+    // Stored as JSON: {"before":"...","after":"..."} in file_before column
+    let diffSnippet: string | null = null;
+
+    if (tool_name === 'Edit' && tool_input &&
+        typeof tool_input.file_path === 'string' &&
+        typeof tool_input.old_string === 'string' &&
+        typeof tool_input.new_string === 'string') {
+      const snippet = buildEditSnippet(
+        tool_input.file_path,
+        tool_input.old_string,
+        tool_input.new_string,
+        !!tool_input.replace_all
+      );
+      if (snippet) diffSnippet = JSON.stringify(snippet);
     }
 
-    // Reconstruct file_before for Edit tool
-    if (
-      !fileBefore &&
-      tool_name === 'Edit' &&
-      tool_input &&
-      typeof tool_input.file_path === 'string' &&
-      typeof tool_input.old_string === 'string' &&
-      typeof tool_input.new_string === 'string'
-    ) {
-      fileBefore = reconstructFileBefore(tool_input.file_path, tool_input.old_string, tool_input.new_string);
+    if (tool_name === 'Write' && tool_input && typeof tool_input.content === 'string') {
+      // Get the pre-write snapshot from PreToolUse
+      let preContent: string | null = null;
+      if (tool_use_id && pendingSnapshots.has(tool_use_id)) {
+        preContent = pendingSnapshots.get(tool_use_id)!.fileBefore;
+        pendingSnapshots.delete(tool_use_id);
+      }
+      const snippet = buildWriteSnippet(preContent, tool_input.content);
+      diffSnippet = JSON.stringify(snippet);
+    }
+
+    // Clean up snapshot entry even if not Write
+    if (tool_use_id && pendingSnapshots.has(tool_use_id)) {
+      pendingSnapshots.delete(tool_use_id);
     }
 
     const eventId = insertEvent(session_id, 'tool_result', {
@@ -274,7 +361,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       status: 'completed',
       agent_id: agent_id ?? null,
       agent_type: agent_type ?? null,
-      file_before: fileBefore,
+      file_before: diffSnippet,  // now stores {"before":"...","after":"..."} JSON
     });
     const event = getEvent(eventId)!;
     bc.broadcastEvent(session_id, event);

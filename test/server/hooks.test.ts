@@ -252,7 +252,11 @@ describe('Hook Routes', () => {
       });
 
       const ev = getEvent(postBody.event_id);
-      expect(ev!.file_before).toBe('original content');
+      // file_before is now JSON: {"before":"original content","after":"new content"}
+      expect(ev!.file_before).not.toBeNull();
+      const snippet = JSON.parse(ev!.file_before!);
+      expect(snippet.before).toBe('original content');
+      expect(snippet.after).toBe('new content');
 
       fs.unlinkSync(tmpFile);
     });
@@ -280,7 +284,11 @@ describe('Hook Routes', () => {
       });
 
       const ev = getEvent(postBody.event_id);
-      expect(ev!.file_before).toBeNull();
+      // Even for nonexistent files, Write stores a snippet with empty "before"
+      expect(ev!.file_before).not.toBeNull();
+      const snippet = JSON.parse(ev!.file_before!);
+      expect(snippet.before).toBe('');
+      expect(snippet.after).toBe('hello');
     });
   });
 
@@ -338,9 +346,11 @@ describe('Hook Routes', () => {
 
       expect(body.ok).toBe(true);
       const ev = getEvent(body.event_id);
-      // file_before should be reconstructed by reversing new_string -> old_string
+      // file_before is now JSON snippet: {"before":"...","after":"..."}
       expect(ev!.file_before).not.toBeNull();
-      expect(ev!.file_before).toContain('return "world";');
+      const snippet = JSON.parse(ev!.file_before!);
+      expect(snippet.before).toContain('return "world";');
+      expect(snippet.after).toContain('return "world";');
 
       fs.unlinkSync(tmpFile);
     });
