@@ -706,3 +706,60 @@ body {
 .tag.yellow{ color: var(--yellow);border-color: var(--yellow);}
 .tag.purple{ color: var(--purple);border-color: var(--purple);}
 .tag.blue  { color: var(--text-accent); border-color: var(--text-accent); }
+
+/* ── Thinking indicator ────────────────────────────────────────── */
+
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.thinking-avatar {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.thinking-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.thinking-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: thinking-bounce 1.4s ease-in-out infinite;
+}
+
+.thinking-dots .dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots .dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Tool card running state ───────────────────────────────────── */
+
+.tool-card.running {
+  border-color: var(--text-accent);
+  animation: tool-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%, 100% { border-color: var(--text-accent); }
+  50% { border-color: var(--border); }
+}
+
+.tool-card .tool-status-icon.running {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

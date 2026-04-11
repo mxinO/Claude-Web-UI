@@ -101,10 +101,11 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
   if (event_type === 'tool_use' || event_type === 'tool_result') {
     const icon = getToolIcon(tool_name ?? '');
     const summary = getToolSummary(event);
+    const isPending = event.status === 'pending' || event.status === 'running';
     const statusClass =
       event.status === 'error' ? 'tool-card--error' :
       event.status === 'success' ? 'tool-card--success' :
-      event.status === 'running' ? 'tool-card--running' : '';
+      isPending ? 'tool-card--running running' : '';
 
     return (
       <div className="chat-row chat-row--assistant">
@@ -115,9 +116,10 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
           tabIndex={0}
           onKeyDown={(e) => { if (e.key === 'Enter') onOpenDetail(event); }}
         >
-          <span className="tool-card-icon">{icon}</span>
+          <span className={`tool-card-icon${isPending ? ' tool-status-icon running' : ''}`}>{icon}</span>
           <span className="tool-card-summary">{summary}</span>
           <span className="tool-card-time">{time}</span>
+          {event.status === 'success' && <span className="tool-card-check" style={{ color: 'var(--green)', flexShrink: 0 }}>✓</span>}
         </div>
       </div>
     );

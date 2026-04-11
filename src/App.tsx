@@ -4,6 +4,7 @@ import ChatMessage from './components/ChatMessage';
 import DetailModal from './components/DetailModal';
 import InputBox from './components/InputBox';
 import ReconnectSummaryWidget from './components/ReconnectSummary';
+import ThinkingIndicator from './components/ThinkingIndicator';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
@@ -99,6 +100,11 @@ export default function App() {
               onOpenDetail={handleOpenDetail}
             />
           ))}
+
+          {events.length > 0 && (() => {
+            const last = events[events.length - 1];
+            return last.event_type === 'user_message' || last.event_type === 'human';
+          })() && <ThinkingIndicator />}
 
           <div ref={bottomRef} />
         </div>
