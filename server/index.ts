@@ -9,7 +9,7 @@ import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
-import { setManagedSessionId } from './hooks.js';
+import { setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3001');
@@ -51,6 +51,9 @@ server.listen(PORT, HOST, () => {
     setManagedSessionId(null); // accept all sessions in mock mode
     return;
   }
+
+  // Block all hook events until the managed Claude sends its SessionStart
+  setWaitingForSessionStart(true);
 
   // --- Configure hooks ---
   try {

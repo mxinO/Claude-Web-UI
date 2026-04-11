@@ -22,9 +22,13 @@ export interface BroadcastFns {
 // Track the managed Claude session ID. Set on first SessionStart from the tmux Claude.
 // When set, only events from this session are accepted; others are silently dropped.
 let managedSessionId: string | null = null;
+// In real mode, we wait for SessionStart before accepting any events.
+// This prevents events from other Claude sessions leaking in during startup.
+let waitingForSessionStart = false;
 
 export function getManagedSessionId(): string | null { return managedSessionId; }
 export function setManagedSessionId(id: string | null): void { managedSessionId = id; }
+export function setWaitingForSessionStart(val: boolean): void { waitingForSessionStart = val; }
 
 /** Ensure a session exists, creating one if needed. */
 function ensureSession(sessionId: string, cwd?: string, model?: string): void {
@@ -67,7 +71,12 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     const sessionId = req.body?.session_id;
     // session-start is handled specially (sets managedSessionId), let it through
     if (req.path === '/session-start') { next(); return; }
-    // If no managed session yet (mock mode), accept everything
+    // In real mode, drop everything until we've received SessionStart
+    if (waitingForSessionStart) {
+      res.json({ ok: true, ignored: true });
+      return;
+    }
+    // If no managed session (mock mode), accept everything
     if (!managedSessionId) { next(); return; }
     // Filter: only accept events from the managed session
     if (sessionId && sessionId !== managedSessionId) {
@@ -92,6 +101,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     if (!managedSessionId) {
       managedSessionId = session_id;
+      waitingForSessionStart = false;
       if (DEBUG) console.log(`[hooks] Managed session set to: ${session_id}`);
     }
     createSession(session_id, model, cwd);

@@ -29,25 +29,29 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
   execSync(cmd, execOpts);
 
   // Auto-accept the "trust this folder" prompt if it appears.
-  // Wait briefly for Claude to start, then send "y" + Enter.
-  // If the prompt doesn't appear (already trusted), the "y" is harmless —
-  // it just becomes the first user message, which we can live with.
-  // A smarter approach: send "y" only if we detect the trust prompt.
-  setTimeout(() => {
+  // Poll every second for up to 10 seconds, looking for the trust dialog.
+  // When found, send Enter (option 1 "Yes, I trust this folder" is pre-selected).
+  let attempts = 0;
+  const trustCheck = setInterval(() => {
+    attempts++;
+    if (attempts > 10) { clearInterval(trustCheck); return; }
     try {
-      // Capture the current pane content to check for trust prompt
       const paneContent = execSync(
         `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
         execOpts
       );
-      if (paneContent.includes('trust') || paneContent.includes('Trust') || paneContent.includes('Do you want')) {
-        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} y Enter`, execOpts);
+      if (paneContent.includes('trust this folder') || paneContent.includes('Trust')) {
+        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
         console.log('Auto-accepted folder trust prompt');
+        clearInterval(trustCheck);
+      } else if (paneContent.includes('Claude Code')) {
+        // Claude is already past the trust prompt
+        clearInterval(trustCheck);
       }
     } catch {
-      // tmux capture failed — ignore
+      // ignore
     }
-  }, 3000);
+  }, 1000);
 }
 
 export function stopClaudeSession(): void {
