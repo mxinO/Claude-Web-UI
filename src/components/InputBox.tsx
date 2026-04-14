@@ -223,11 +223,10 @@ export default function InputBox() {
       if (!item) return;
 
       if (acMode === 'slash') {
-        // Send the full text in the input (allows "/model opus" typed manually)
-        const commandText = value.trim().startsWith('/') && value.includes(' ')
-          ? value.trim() // user typed "/model opus" — send as-is
-          : item.label;  // user selected from dropdown — send the command
-        sendSlashRef.current(commandText);
+        // Insert the command into the input with a trailing space
+        // User can then type arguments (e.g. "/model opus") and press Enter to send
+        setValue(item.label + ' ');
+        closeAutocomplete();
       } else if (acMode === 'file') {
         const atIdx = atPosRef.current;
         const before = value.slice(0, atIdx);
@@ -252,6 +251,12 @@ export default function InputBox() {
     const trimmed = text.trim();
     if (!trimmed) return;
     setError('');
+
+    // Slash commands use the special endpoint that captures TUI response
+    if (trimmed.startsWith('/')) {
+      sendSlashRef.current(trimmed);
+      return;
+    }
 
     try {
       const res = await fetch('/api/send-input', {
