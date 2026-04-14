@@ -31,26 +31,24 @@ export default function Header({ session, connected }: HeaderProps) {
 
   const displayModel = currentModel || session?.model;
 
-  const [resuming, setResuming] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
-  async function handleSessionSelect(sessionId: string) {
-    if (resuming) return; // prevent double-click
+  async function handleSessionSelect(sessionId: string, cwd: string) {
+    if (switching) return;
     setPickerVisible(false);
-    setResuming(true);
+    setSwitching(true);
     try {
-      const res = await fetch('/api/send-command', {
+      const res = await fetch('/api/switch-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: `/resume ${sessionId}` }),
+        body: JSON.stringify({ sessionId, cwd }),
       });
-      const data = await res.json();
-      if (data.response) {
-        window.dispatchEvent(new CustomEvent('claude-command-executed', {
-          detail: { command: '/resume', response: data.response }
-        }));
+      if (res.ok) {
+        // Reload the page to start fresh with the new session
+        window.location.reload();
       }
     } catch { /* ignore */ }
-    setResuming(false);
+    setSwitching(false);
   }
 
   return (
@@ -65,12 +63,11 @@ export default function Header({ session, connected }: HeaderProps) {
             onClick={() => setPickerVisible(v => !v)}
             style={{ position: 'relative' }}
           >
-            Session: {session.id.slice(0, 8)}...
+            {switching ? 'Switching...' : `Session: ${session.id.slice(0, 8)}...`}
             <SessionPicker
               visible={pickerVisible}
               onClose={() => setPickerVisible(false)}
               onSelect={handleSessionSelect}
-              cwd={session?.cwd || undefined}
             />
           </span>
           {session.cwd && (

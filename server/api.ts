@@ -255,6 +255,41 @@ export function registerApiRoutes(app: Express): void {
     res.json(getCachedCommands());
   });
 
+  // POST /api/switch-session — kill current Claude, restart with --resume in the session's CWD
+  router.post('/switch-session', async (req, res) => {
+    const { sessionId, cwd } = req.body as { sessionId?: string; cwd?: string };
+    if (!sessionId) {
+      res.status(400).json({ error: 'sessionId required' });
+      return;
+    }
+    try {
+      // Kill current Claude
+      stopClaudeSession();
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Reset managed session so hooks attach to the new one
+      const { setManagedSessionId, setWaitingForSessionStart } = await import('./hooks.js');
+      setManagedSessionId(null);
+      setWaitingForSessionStart(true);
+
+      // Start Claude with --resume in the session's CWD
+      const targetCwd = cwd || process.cwd();
+      startClaudeSession(`--resume ${sessionId}`, targetCwd);
+
+      // Re-scrape commands after Claude starts
+      setTimeout(async () => {
+        try {
+          const { scrapeCommands } = await import('./commands.js');
+          await scrapeCommands();
+        } catch { /* ignore */ }
+      }, 8000);
+
+      res.json({ ok: true, sessionId, cwd: targetCwd });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // GET /api/claude-sessions — list recent Claude Code JSONL sessions
   // Optional ?cwd= to filter to a specific project directory
   router.get('/claude-sessions', (req, res) => {
@@ -340,6 +375,7 @@ interface ClaudeSession {
   model: string | null;
   name: string | null;
   preview: string | null;
+  cwd: string; // the working directory this session belongs to
 }
 
 /** Read recent Claude Code JSONL sessions from ~/.claude/projects/.
@@ -361,7 +397,7 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
     }
   } catch { return []; }
 
-  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date }> = [];
+  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date; projDir: string }> = [];
   for (const projDir of dirsToScan) {
     const projPath = path.join(projectsDir, projDir);
     try {
@@ -373,7 +409,7 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
         const fullPath = path.join(projPath, entry);
         try {
           const fstat = fs.statSync(fullPath);
-          jsonlFiles.push({ name: entry, fullPath, mtime: fstat.mtime });
+          jsonlFiles.push({ name: entry, fullPath, mtime: fstat.mtime, projDir });
         } catch { /* skip */ }
       }
     } catch { /* skip */ }
@@ -431,12 +467,16 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
       }
     } catch { /* skip unreadable */ }
 
+    // Derive CWD from project dir name: -home-mxin → /home/mxin
+    const sessionCwd = file.projDir.replace(/^-/, '/').replace(/-/g, '/');
+
     sessions.push({
       id: sessionId,
       date: file.mtime.toISOString(),
       model,
       name: sessionName,
       preview,
+      cwd: sessionCwd,
     });
   }
 

@@ -6,24 +6,23 @@ interface ClaudeSession {
   model: string | null;
   name: string | null;
   preview: string | null;
+  cwd?: string;
 }
 
 interface SessionPickerProps {
   visible: boolean;
   onClose: () => void;
-  onSelect: (sessionId: string) => void;
-  cwd?: string; // filter sessions to this working directory
+  onSelect: (sessionId: string, cwd: string) => void;
 }
 
-export default function SessionPicker({ visible, onClose, onSelect, cwd }: SessionPickerProps) {
+export default function SessionPicker({ visible, onClose, onSelect }: SessionPickerProps) {
   const [sessions, setSessions] = useState<ClaudeSession[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
-    const url = cwd ? `/api/claude-sessions?cwd=${encodeURIComponent(cwd)}` : '/api/claude-sessions';
-    fetch(url)
+    fetch('/api/claude-sessions')
       .then(r => r.ok ? r.json() : [])
       .then(data => {
         setSessions(Array.isArray(data) ? data : []);
@@ -80,7 +79,7 @@ export default function SessionPicker({ visible, onClose, onSelect, cwd }: Sessi
             key={s.id}
             className="session-picker-item"
             onClick={() => {
-              onSelect(s.id);
+              onSelect(s.id, s.cwd || '');
               onClose();
             }}
           >
