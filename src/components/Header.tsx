@@ -33,19 +33,28 @@ export default function Header({ session, connected }: HeaderProps) {
 
   const [switching, setSwitching] = useState(false);
 
-  async function handleSessionSelect(sessionId: string, cwd: string) {
+  async function handleSessionSelect(sessionId: string, _cwd: string) {
     if (switching) return;
     setPickerVisible(false);
     setSwitching(true);
     try {
-      const res = await fetch('/api/switch-session', {
+      // Use /resume within the existing Claude session (keeps auth)
+      const res = await fetch('/api/send-command', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, cwd }),
+        body: JSON.stringify({ text: `/resume ${sessionId}` }),
       });
-      if (res.ok) {
-        // Reload the page to start fresh with the new session
+      const data = await res.json();
+      if (data.response && !data.response.includes('not found')) {
+        // Tell server to reset session tracking for the new session
+        await fetch('/api/reset-session', { method: 'POST' });
+        // Reload page — hooks will pick up the new session
         window.location.reload();
+      } else if (data.response) {
+        // Session not found
+        window.dispatchEvent(new CustomEvent('claude-command-executed', {
+          detail: { command: '/resume', response: data.response }
+        }));
       }
     } catch { /* ignore */ }
     setSwitching(false);
@@ -68,6 +77,7 @@ export default function Header({ session, connected }: HeaderProps) {
               visible={pickerVisible}
               onClose={() => setPickerVisible(false)}
               onSelect={handleSessionSelect}
+              cwd={session?.cwd || undefined}
             />
           </span>
           {session.cwd && (

@@ -28,28 +28,27 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
   const cmd = `tmux new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "claude ${args}"`;
   execSync(cmd, execOpts);
 
-  // Auto-accept the "trust this folder" prompt if it appears.
-  // Poll every second for up to 10 seconds, looking for the trust dialog.
-  // When found, send Enter (option 1 "Yes, I trust this folder" is pre-selected).
+  // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.
+  // Poll every second for up to 15 seconds. Press Enter when we see a dialog.
+  // Stop when we see the main prompt (❯).
   let attempts = 0;
-  const trustCheck = setInterval(() => {
+  const startupCheck = setInterval(() => {
     attempts++;
-    if (attempts > 10) { clearInterval(trustCheck); return; }
+    if (attempts > 15) { clearInterval(startupCheck); return; }
     try {
       const paneContent = execSync(
         `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
         execOpts
       );
-      if (paneContent.includes('trust this folder') || paneContent.includes('Trust')) {
+      if (paneContent.includes('❯ ') && !paneContent.includes('Enter to confirm')) {
+        // Main prompt visible — Claude is ready
+        clearInterval(startupCheck);
+      } else if (paneContent.includes('Enter to confirm') || paneContent.includes('trust') || paneContent.includes('Trust') || paneContent.includes('/theme') || paneContent.includes('Choose') || paneContent.includes('Dark mode') || paneContent.includes('Let\'s get started')) {
         execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
-        console.log('Auto-accepted folder trust prompt');
-        clearInterval(trustCheck);
-      } else if (paneContent.includes('Claude Code')) {
-        // Claude is already past the trust prompt
-        clearInterval(trustCheck);
+        console.log('Auto-accepted startup prompt');
       }
     } catch {
-      // ignore
+      // ignore — tmux might not be ready yet
     }
   }, 1000);
 }

@@ -255,6 +255,18 @@ export function registerApiRoutes(app: Express): void {
     res.json(getCachedCommands());
   });
 
+  // POST /api/reset-session — reset session tracking (after /resume)
+  router.post('/reset-session', async (_req, res) => {
+    try {
+      const { setManagedSessionId, setWaitingForSessionStart } = await import('./hooks.js');
+      setManagedSessionId(null);
+      setWaitingForSessionStart(true);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // POST /api/switch-session — kill current Claude, restart with --resume in the session's CWD
   router.post('/switch-session', async (req, res) => {
     const { sessionId, cwd } = req.body as { sessionId?: string; cwd?: string };
@@ -275,14 +287,6 @@ export function registerApiRoutes(app: Express): void {
       // Start Claude with --resume in the session's CWD
       const targetCwd = cwd || process.cwd();
       startClaudeSession(`--resume ${sessionId}`, targetCwd);
-
-      // Re-scrape commands after Claude starts
-      setTimeout(async () => {
-        try {
-          const { scrapeCommands } = await import('./commands.js');
-          await scrapeCommands();
-        } catch { /* ignore */ }
-      }, 8000);
 
       res.json({ ok: true, sessionId, cwd: targetCwd });
     } catch (err) {

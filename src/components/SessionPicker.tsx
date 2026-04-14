@@ -13,16 +13,18 @@ interface SessionPickerProps {
   visible: boolean;
   onClose: () => void;
   onSelect: (sessionId: string, cwd: string) => void;
+  cwd?: string;
 }
 
-export default function SessionPicker({ visible, onClose, onSelect }: SessionPickerProps) {
+export default function SessionPicker({ visible, onClose, onSelect, cwd }: SessionPickerProps) {
   const [sessions, setSessions] = useState<ClaudeSession[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
-    fetch('/api/claude-sessions')
+    const url = cwd ? `/api/claude-sessions?cwd=${encodeURIComponent(cwd)}` : '/api/claude-sessions';
+    fetch(url)
       .then(r => r.ok ? r.json() : [])
       .then(data => {
         setSessions(Array.isArray(data) ? data : []);

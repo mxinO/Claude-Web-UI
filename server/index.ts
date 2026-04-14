@@ -79,16 +79,14 @@ server.listen(PORT, HOST, () => {
 
   console.log(`\nOpen in browser: http://${HOST === '0.0.0.0' ? getLocalIP() : HOST}:${PORT}`);
 
-  // Scrape slash commands after Claude is ready (give it time to initialize)
-  if (!MOCK) {
-    setTimeout(async () => {
-      try {
-        await scrapeCommands();
-      } catch (err) {
-        console.error('Failed to scrape commands:', err);
-      }
-    }, 8000); // wait 8s for Claude to fully start
-  }
+  // Scrape slash commands after Claude is ready
+  // DISABLED: scraping can crash/kill the tmux Claude session
+  // TODO: find a safer way to get the command list
+  // if (!MOCK) {
+  //   setTimeout(async () => {
+  //     try { await scrapeCommands(); } catch { }
+  //   }, 8000);
+  // }
 });
 
 // --- Graceful shutdown ---
