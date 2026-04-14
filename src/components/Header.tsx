@@ -9,6 +9,7 @@ interface HeaderProps {
 
 export default function Header({ session, connected }: HeaderProps) {
   const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [currentCwd, setCurrentCwd] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const sessionIdRef = useRef<HTMLSpanElement>(null);
 
@@ -17,7 +18,10 @@ export default function Header({ session, connected }: HeaderProps) {
     const fetchModel = () => {
       fetch('/api/current-model')
         .then(r => r.ok ? r.json() : null)
-        .then(data => { if (data?.model) setCurrentModel(data.model); })
+        .then(data => {
+          if (data?.model) setCurrentModel(data.model);
+          if (data?.cwd) setCurrentCwd(data.cwd);
+        })
         .catch(() => {});
     };
 
@@ -30,6 +34,7 @@ export default function Header({ session, connected }: HeaderProps) {
   }, []);
 
   const displayModel = currentModel || session?.model;
+  const displayCwd = currentCwd || session?.cwd;
 
   const [switching, setSwitching] = useState(false);
 
@@ -71,9 +76,9 @@ export default function Header({ session, connected }: HeaderProps) {
               cwd={session?.cwd || undefined}
             />
           </span>
-          {session.cwd && (
-            <span className="session-info" title={session.cwd}>
-              {session.cwd.length > 40 ? '...' + session.cwd.slice(-37) : session.cwd}
+          {displayCwd && (
+            <span className="session-info" title={displayCwd}>
+              {displayCwd.length > 40 ? '...' + displayCwd.slice(-37) : displayCwd}
             </span>
           )}
         </>

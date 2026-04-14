@@ -235,18 +235,23 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
-  // Current model (parsed from tmux pane header)
+  // Current model and CWD (parsed from tmux pane header)
   router.get('/current-model', (_req, res) => {
     try {
       const capture = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S 0 -E 3`,
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S 0 -E 5`,
         { encoding: 'utf-8', timeout: 3000 }
       );
       // Header line looks like: "Opus 4.6 (1M context) with medium effort"
-      const match = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
-      res.json({ model: match ? match[0] : null });
+      const modelMatch = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
+      // CWD line looks like: "  /home/mxin"
+      const cwdMatch = capture.match(/^\s+(\/\S+)\s*$/m);
+      res.json({
+        model: modelMatch ? modelMatch[0] : null,
+        cwd: cwdMatch ? cwdMatch[1] : null,
+      });
     } catch {
-      res.json({ model: null });
+      res.json({ model: null, cwd: null });
     }
   });
 
