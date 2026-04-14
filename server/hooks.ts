@@ -5,6 +5,7 @@ import {
   createSession,
   endSession,
   getSession,
+  getDb,
   insertEvent,
   updateEvent,
   getEvent,
@@ -189,6 +190,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
           fs.mkdirSync(path.dirname(sessionDbPath), { recursive: true });
           switchDb(sessionDbPath);
           if (DEBUG) console.log(`[hooks] Switched DB to: ${sessionDbPath}`);
+
+          // If DB is empty, import history from Claude's JSONL transcript
+          const eventCount = (getDb().prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number }).cnt;
+          if (eventCount === 0) {
+            const jsonlPath = path.join(path.dirname(sessionDbPath), `${session_id}.jsonl`);
+            importFromJsonl(jsonlPath, session_id, cwd);
+          }
         } catch (err) {
           console.error(`[hooks] Failed to switch DB: ${err}`);
         }
@@ -523,4 +531,83 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     bc.broadcastEvent(session_id, event);
     res.json({ ok: true, event_id: eventId });
   });
+}
+
+/**
+ * Import conversation history from Claude's JSONL transcript into our web UI DB.
+ * Called when switching to a session that has no webui.db yet.
+ */
+function importFromJsonl(jsonlPath: string, sessionId: string, cwd?: string): void {
+  try {
+    if (!fs.existsSync(jsonlPath)) return;
+    const content = fs.readFileSync(jsonlPath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim());
+
+    createSession(sessionId, undefined, cwd);
+    let imported = 0;
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+
+        if (entry.type === 'user') {
+          // Extract user message text
+          let text = '';
+          const msg = entry.message;
+          if (msg && Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part.type === 'text' && typeof part.text === 'string') {
+                text = part.text;
+              }
+            }
+          } else if (typeof msg?.content === 'string') {
+            text = msg.content;
+          }
+          // Skip system noise
+          if (!text || text.startsWith('<local-command') || text.startsWith('<system-reminder') || text.startsWith('<command-')) continue;
+          insertEvent(sessionId, 'user_message', { message_text: text });
+          imported++;
+        }
+
+        if (entry.type === 'assistant') {
+          // Extract assistant message text
+          const msg = entry.message;
+          let text = '';
+          if (msg && Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part.type === 'text' && typeof part.text === 'string') {
+                text += part.text;
+              }
+            }
+          }
+          const model = msg?.model || null;
+          if (text) {
+            insertEvent(sessionId, 'assistant_message', {
+              message_text: text,
+              status: 'end_turn',
+            });
+            imported++;
+          }
+
+          // Extract tool uses from assistant message
+          if (msg && Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part.type === 'tool_use') {
+                insertEvent(sessionId, 'tool_result', {
+                  tool_name: part.name || null,
+                  tool_input: JSON.stringify(part.input || {}),
+                  status: 'completed',
+                });
+                imported++;
+              }
+            }
+          }
+        }
+      } catch { /* skip bad lines */ }
+    }
+
+    if (DEBUG) console.log(`[hooks] Imported ${imported} events from JSONL`);
+  } catch (err) {
+    console.error(`[hooks] Failed to import from JSONL: ${err}`);
+  }
 }
