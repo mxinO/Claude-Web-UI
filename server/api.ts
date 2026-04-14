@@ -90,7 +90,17 @@ export function registerApiRoutes(app: Express): void {
       res.json({ status: 'pending' });
       return;
     }
-    res.json({ status: perm.decision, response: perm.response_json ? JSON.parse(perm.response_json) : null });
+    // Return the response JSON for the hook script to relay to Claude
+    const fallbackResponse = {
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: perm.decision === 'allow' ? 'allow' : 'deny' },
+      },
+    };
+    res.json({
+      status: perm.decision,
+      response: perm.response_json ? JSON.parse(perm.response_json) : fallbackResponse,
+    });
   });
 
   // POST /api/permission-decision/:id — submit allow/deny

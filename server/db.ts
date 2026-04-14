@@ -175,9 +175,16 @@ export function getPermissionRequest(id: string): DbPermissionRequest | null {
 }
 
 export function resolvePermission(id: string, decision: string): void {
+  const behavior = decision === 'allow' ? 'allow' : 'deny';
+  const responseJson = JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PermissionRequest',
+      decision: { behavior },
+    },
+  });
   getDb().prepare(
-    `UPDATE permission_requests SET decision = ?, decided_at = datetime('now') WHERE id = ?`
-  ).run(decision, id);
+    `UPDATE permission_requests SET decision = ?, decided_at = datetime('now'), response_json = ? WHERE id = ?`
+  ).run(decision, responseJson, id);
 }
 
 export function getReconnectSummary(sessionId: string, afterEventId: number): ReconnectSummary {
