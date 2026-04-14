@@ -47,7 +47,7 @@ fi
 # Build if needed or if source changed since last build
 if [ ! -d dist/client ] || [ -n "$(find src server \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) -newer dist/client/index.html 2>/dev/null | head -1)" ]; then
   echo "Building frontend..."
-  npx vite build --silent
+  npx vite build --logLevel silent
 fi
 
 # Check prerequisites
