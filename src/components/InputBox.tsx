@@ -283,8 +283,8 @@ export default function InputBox() {
           sendSlashRef.current(`${cmd} ${item.label}`);
         } else {
           // Command selected: insert with trailing space for argument typing
+          // Don't close autocomplete — the useEffect on value will show sub-options if available
           setValue(item.label + ' ');
-          closeAutocomplete();
         }
       } else if (acMode === 'file') {
         const atIdx = atPosRef.current;
