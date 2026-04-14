@@ -68,13 +68,22 @@ export default function App() {
       cancelledRef.current = true;
       if (streamingText) {
         setCancelledText(streamingText);
+      } else {
+        // Cancelled before any output — Claude puts the prompt back
+        // Find the last user_message and put it back into the input box
+        const lastUserMsg = [...events].reverse().find(e => e.event_type === 'user_message');
+        if (lastUserMsg?.message_text) {
+          window.dispatchEvent(new CustomEvent('insert-input-text', {
+            detail: { text: lastUserMsg.message_text }
+          }));
+        }
       }
       setStreamingText(null);
       setStreamingExpanded(false);
     };
     window.addEventListener('claude-interrupted', handler);
     return () => window.removeEventListener('claude-interrupted', handler);
-  }, [streamingText]);
+  }, [streamingText, events]);
 
   // Auto-scroll to bottom on new events
   useEffect(() => {
