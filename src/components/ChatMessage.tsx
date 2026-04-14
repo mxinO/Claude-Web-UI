@@ -156,9 +156,14 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
           tabIndex={0}
           onKeyDown={(e) => { if (e.key === 'Enter') onOpenDetail(event); }}
         >
-          <span className="tool-card-icon">{'\uD83D\uDD12'}</span>
+          <span className="tool-card-icon">{isPending ? '\uD83D\uDD12' : event.status === 'allowed' ? '\u2705' : event.status === 'denied' ? '\u274C' : '\uD83D\uDD13'}</span>
           <span className="tool-card-summary">
             Permission: {tn}{detail ? ` — ${detail}` : ''}
+            {!isPending && (
+              <span style={{ marginLeft: 8, fontSize: 11, color: event.status === 'allowed' ? 'var(--green)' : event.status === 'denied' ? 'var(--red)' : 'var(--text-secondary)' }}>
+                ({event.status})
+              </span>
+            )}
           </span>
           <span className="tool-card-time">{time}</span>
         </div>
