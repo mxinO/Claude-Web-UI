@@ -64,13 +64,13 @@ export default function App() {
 
   // Listen for interrupt (stop button)
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = () => {
       cancelledRef.current = true;
-      const promptRestored = (e as CustomEvent).detail?.promptRestored;
       if (streamingText) {
+        // Late cancel — had streaming output, show cancelled card
         setCancelledText(streamingText);
-      } else if (promptRestored) {
-        // Early cancel — Claude put the prompt back, so we do too
+      } else {
+        // Early cancel — no output yet, Claude restores prompt, so we do too
         const lastUserMsg = [...events].reverse().find(ev => ev.event_type === 'user_message');
         if (lastUserMsg?.message_text) {
           window.dispatchEvent(new CustomEvent('insert-input-text', {

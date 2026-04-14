@@ -164,28 +164,10 @@ export function registerApiRoutes(app: Express): void {
       stopStreaming();
       // Send Escape to tmux to interrupt
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
-      // Wait briefly for Claude to process the cancel
+      // Wait briefly then clear Claude's input line (it may put the cancelled prompt back)
       await new Promise(resolve => setTimeout(resolve, 500));
-      // Check if Claude put the prompt back in its input (early cancel behavior)
-      let promptRestored = false;
-      try {
-        const capture = execSync(
-          `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -5`,
-          { encoding: 'utf-8', timeout: 3000 }
-        );
-        // Look for text after the ❯ prompt on the last input line
-        const lines = capture.split('\n');
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const match = lines[i].match(/^❯\s+(.+)/);
-          if (match && match[1].trim().length > 0) {
-            promptRestored = true;
-            break;
-          }
-        }
-      } catch { /* ignore */ }
-      // Clear Claude's input line to prevent duplicate text on next send
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
-      res.json({ ok: true, promptRestored });
+      res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
