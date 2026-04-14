@@ -149,8 +149,13 @@ function setupHooks() {
 
   fs.writeFileSync(HOOKS_SETTINGS_PATH, JSON.stringify(settings, null, 2));
 
-  // Clean up any hooks we previously wrote to global settings
-  cleanupGlobalHooks();
+  // One-time migration: clean up hooks from global settings if we put them there before.
+  // After cleanup, write a marker so we don't run this again.
+  const migrationMarker = path.join(path.dirname(HOOKS_SETTINGS_PATH), '.hooks-migrated');
+  if (!fs.existsSync(migrationMarker)) {
+    cleanupGlobalHooks();
+    fs.writeFileSync(migrationMarker, new Date().toISOString());
+  }
 }
 
 /** Remove only OUR hooks from ~/.claude/settings.json, keep user-installed ones.
