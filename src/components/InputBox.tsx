@@ -107,14 +107,16 @@ export default function InputBox() {
     el.style.height = `${Math.min(scrollH, maxH)}px`;
   }, [value]);
 
-  // Update autocomplete when value changes
+  // Update autocomplete function — defined as a plain function, referenced via ref
+  const updateAutocompleteRef = useRef<(text: string) => void>();
+
+  // Trigger autocomplete on every value change
   useEffect(() => {
-    updateAutocomplete(value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    updateAutocompleteRef.current?.(value);
   }, [value]);
 
-  const updateAutocomplete = useCallback(
-    async (text: string) => {
+  // Define the autocomplete logic (runs every render to capture latest closures)
+  updateAutocompleteRef.current = async (text: string) => {
       // Sub-options: "/model " or "/effort " — show argument suggestions
       if (text.startsWith('/') && text.includes(' ')) {
         const spaceIdx = text.indexOf(' ');
@@ -175,9 +177,7 @@ export default function InputBox() {
 
       // Nothing matched
       closeAutocomplete();
-    },
-    [],
-  );
+  };
 
   const fetchFileSuggestions = useCallback(async (pathPart: string) => {
     try {
