@@ -362,7 +362,8 @@ export function registerApiRoutes(app: Express): void {
 
       // Start Claude with --resume in the session's CWD
       const targetCwd = cwd || process.cwd();
-      const hooksSettings = path.join(process.cwd(), 'data', 'hooks-settings.json');
+      const __dirname = path.dirname(new URL(import.meta.url).pathname);
+      const hooksSettings = path.join(__dirname, '..', 'data', 'hooks-settings.json');
       startClaudeSession(`--settings ${hooksSettings} --resume ${sessionId}`, targetCwd);
 
       // Wait until Claude is ready (SessionStart hook fires and sets managedSessionId)
