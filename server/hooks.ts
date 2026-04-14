@@ -190,6 +190,11 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
           switchDb(sessionDbPath);
           if (DEBUG) console.log(`[hooks] Switched DB to: ${sessionDbPath}`);
 
+          // Mark any stale pending permissions as completed (from previous runs)
+          getDb().prepare(
+            "UPDATE events SET status = 'completed' WHERE event_type = 'permission_request' AND status = 'pending'"
+          ).run();
+
           // If DB is empty, import history from Claude's JSONL transcript
           const eventCount = (getDb().prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number }).cnt;
           if (eventCount === 0) {

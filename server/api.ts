@@ -3,6 +3,7 @@ import path from 'path';
 import { Router, Express } from 'express';
 import {
   listSessions,
+  getSession,
   getEvents,
   getEvent,
   getPermissionRequest,
@@ -39,8 +40,14 @@ export function registerApiRoutes(app: Express): void {
     res.json(sessions);
   });
 
-  // GET /api/sessions/latest — get the most recent session
+  // GET /api/sessions/latest — get the active managed session (or most recent)
   router.get('/sessions/latest', (_req, res) => {
+    // Prefer the managed session (the one we're actively tracking)
+    const managedId = getManagedSessionId();
+    if (managedId) {
+      const managed = getSession(managedId);
+      if (managed) { res.json(managed); return; }
+    }
     const session = getLatestSession();
     if (!session) {
       res.status(404).json({ error: 'No sessions found' });
