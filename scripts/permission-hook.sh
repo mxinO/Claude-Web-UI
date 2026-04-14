@@ -3,12 +3,21 @@ set -euo pipefail
 SERVER="http://localhost:${CLAUDE_WEB_UI_PORT:-3001}"
 INPUT=$(cat)
 
-ID=$(echo "$INPUT" | curl -sf -X POST "$SERVER/hooks/permission-request" \
-  -H 'Content-Type: application/json' -d @- | jq -r '.id')
+RESPONSE=$(echo "$INPUT" | curl -sf -X POST "$SERVER/hooks/permission-request" \
+  -H 'Content-Type: application/json' -d @- 2>/dev/null || echo '{}')
 
-if [ -z "$ID" ] || [ "$ID" = "null" ]; then
-  echo '{"error": "Failed to register permission request"}' >&2
-  exit 1
+# Check if auto-approved (bypass/auto mode)
+AUTO=$(echo "$RESPONSE" | jq -r '.autoApproved // empty')
+if [ "$AUTO" = "true" ]; then
+  echo '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+  exit 0
+fi
+
+ID=$(echo "$RESPONSE" | jq -r '.id // empty')
+if [ -z "$ID" ]; then
+  # Server didn't return an ID — allow by default to avoid blocking
+  echo '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}'
+  exit 0
 fi
 
 DEADLINE=$((SECONDS + 590))

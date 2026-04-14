@@ -416,20 +416,30 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     ensureSession(session_id, cwd);
 
+    // Check if we're in bypass/auto mode — auto-approve instead of waiting
+    const { permission_mode } = req.body as { permission_mode?: string };
+    const autoApprove = permission_mode === 'bypassPermissions' || permission_mode === 'auto';
+
     const eventId = insertEvent(session_id, 'permission_request', {
       tool_name: tool_name ?? null,
       tool_input: tool_input ? JSON.stringify(tool_input) : null,
-      status: 'pending',
+      status: autoApprove ? 'completed' : 'pending',
       agent_id: agent_id ?? null,
       agent_type: agent_type ?? null,
     });
 
-    const permId = createPermissionRequest(eventId);
-    bc.broadcastPermission(session_id, permId, eventId, tool_name ?? '', tool_input ?? {});
-
-    const event = getEvent(eventId)!;
-    bc.broadcastEvent(session_id, event);
-    res.json({ id: permId, event_id: eventId });
+    if (autoApprove) {
+      // Don't create a blocking permission request — just log it as approved
+      const event = getEvent(eventId)!;
+      bc.broadcastEvent(session_id, event);
+      res.json({ ok: true, event_id: eventId, autoApproved: true });
+    } else {
+      const permId = createPermissionRequest(eventId);
+      bc.broadcastPermission(session_id, permId, eventId, tool_name ?? '', tool_input ?? {});
+      const event = getEvent(eventId)!;
+      bc.broadcastEvent(session_id, event);
+      res.json({ id: permId, event_id: eventId });
+    }
   });
 
   // ── /subagent-start ──────────────────────────────────────────────────────
