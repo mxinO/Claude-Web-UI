@@ -162,8 +162,12 @@ export function registerApiRoutes(app: Express): void {
       // Stop streaming poll first
       const { stopStreaming } = await import('./streaming.js');
       stopStreaming();
-      // Send Escape to tmux
+      // Send Escape to tmux to interrupt
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+      // Wait briefly, then clear Claude's input line (it puts the cancelled prompt back)
+      await new Promise(resolve => setTimeout(resolve, 500));
+      // Ctrl+U clears the current input line in most terminals/readline
+      execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
