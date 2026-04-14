@@ -7,6 +7,12 @@ import express from 'express';
 import type { Express } from 'express';
 import { createServer } from 'http';
 
+// Mock child_process so tmux calls don't hit the real tmux session during tests.
+// getCurrentPermissionMode() in hooks.ts uses execSync; return a neutral status bar.
+vi.mock('child_process', () => ({
+  execSync: vi.fn(() => ''),
+}));
+
 import { initDb, closeDb, getSession, getEvents, getEvent, getPermissionRequest } from '../../server/db.js';
 import { registerHookRoutes, setManagedSessionId } from '../../server/hooks.js';
 import type { BroadcastFns } from '../../server/hooks.js';

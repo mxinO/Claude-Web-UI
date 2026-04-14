@@ -8,6 +8,7 @@ import {
   getEvent,
   getPermissionRequest,
   resolvePermission,
+  updateEvent,
   getReconnectSummary,
   getLatestSession,
   getDb,
@@ -20,15 +21,20 @@ import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } f
 
 
 function isPathSafe(filePath: string): boolean {
-  const resolved = path.resolve(filePath);
-  // Block obvious path traversal
-  if (filePath.includes('..')) return false;
-  // Must be an absolute path
-  if (!resolved.startsWith('/')) return false;
-  // Block sensitive system paths
-  const blocked = ['/etc/shadow', '/etc/passwd', '/proc', '/sys'];
-  if (blocked.some(b => resolved.startsWith(b))) return false;
-  return true;
+  try {
+    const resolved = path.resolve(filePath);
+    if (filePath.includes('..')) return false;
+    // Resolve symlinks to prevent symlink traversal
+    let realPath: string;
+    try { realPath = fs.realpathSync(resolved); } catch { realPath = resolved; }
+    // Must be under HOME
+    const home = process.env.HOME || '/root';
+    if (!realPath.startsWith(home)) return false;
+    // Block sensitive paths
+    const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud'];
+    if (blocked.some(b => realPath.includes('/' + b + '/') || realPath.endsWith('/' + b))) return false;
+    return true;
+  } catch { return false; }
 }
 
 export function registerApiRoutes(app: Express): void {
@@ -124,6 +130,7 @@ export function registerApiRoutes(app: Express): void {
     }
     const decision = allow ? 'allow' : 'deny';
     resolvePermission(req.params.id, decision);
+    updateEvent(perm.event_id, { status: allow ? 'allowed' : 'denied' });
 
     // Look up session_id from the event
     const event = getEvent(perm.event_id);
@@ -315,7 +322,9 @@ export function registerApiRoutes(app: Express): void {
   // Current model, CWD, permission mode, and effort (parsed from tmux pane)
   router.get('/current-status', (_req, res) => {
     try {
-      // Capture a large range — header may be scrolled far up
+      // Capture a large range — header may be scrolled far up.
+      // -S -500: up to 500 lines of scrollback. The regex search is fast (< 1ms);
+      // the exec overhead dominates, not the data size. This is acceptable.
       const headerCapture = execSync(
         `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 5`,
         { encoding: 'utf-8', timeout: 3000 }

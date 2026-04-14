@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { execSync } from 'child_process';
 import type { Express, Request, Response } from 'express';
 import path from 'path';
 import {
@@ -140,6 +141,23 @@ function buildWriteSnippet(beforeContent: string | null, newContent: string): { 
   };
 }
 
+const tmuxSession = process.env.CLAUDE_TMUX_SESSION || 'claude';
+const tmuxPane = process.env.CLAUDE_TMUX_PANE || '0';
+
+/** Read the current Claude permission mode from the tmux status bar. */
+function getCurrentPermissionMode(): string | null {
+  try {
+    const capture = execSync(
+      `tmux capture-pane -t ${tmuxSession}:${tmuxPane} -p -S -3`,
+      { encoding: 'utf-8', timeout: 3000 }
+    );
+    if (capture.includes('plan mode')) return 'plan';
+    if (capture.includes('bypass permissions')) return 'bypassPermissions';
+    if (capture.includes('auto-accept')) return 'auto';
+    return 'default';
+  } catch { return null; }
+}
+
 export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
 
   // Middleware: silently drop events from non-managed sessions
@@ -194,6 +212,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
           getDb().prepare(
             "UPDATE events SET status = 'allowed' WHERE event_type = 'permission_request' AND status = 'pending'"
           ).run();
+          // Also resolve stale permission_requests
+          const allowJson = JSON.stringify({
+            hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } }
+          });
+          getDb().prepare(
+            "UPDATE permission_requests SET decision = 'allow', decided_at = datetime('now'), response_json = ? WHERE decision = 'pending'"
+          ).run(allowJson);
 
           // If DB is empty, import history from Claude's JSONL transcript
           const eventCount = (getDb().prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number }).cnt;
@@ -421,9 +446,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     ensureSession(session_id, cwd);
 
-    // Check if we're in bypass/auto mode — auto-approve instead of waiting
-    const { permission_mode } = req.body as { permission_mode?: string };
-    const autoApprove = permission_mode === 'bypassPermissions' || permission_mode === 'auto';
+    // Check if we're in bypass/auto mode — auto-approve instead of waiting.
+    // Read mode from the tmux status bar since Claude Code doesn't send it in the hook payload.
+    const permMode = getCurrentPermissionMode();
+    const autoApprove = permMode === 'bypassPermissions' || permMode === 'auto';
 
     const eventId = insertEvent(session_id, 'permission_request', {
       tool_name: tool_name ?? null,

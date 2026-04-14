@@ -62,6 +62,8 @@ export function broadcastPermission(sessionId: string, permissionId: string, eve
   });
 }
 
+// Note: broadcastPermissionDecision is used by api.ts after a user approves/denies a permission.
+// Keeping it here for potential multi-tab support (other tabs can react to the decision in real-time).
 export function broadcastPermissionDecision(sessionId: string, permissionId: string, decision: string): void {
   broadcast(sessionId, 'permission_decided', {
     permission_id: permissionId,
