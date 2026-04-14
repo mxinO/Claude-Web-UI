@@ -23,27 +23,19 @@ const FALLBACK_COMMANDS = [
 // Commands to hide from autocomplete (managed by the web UI server)
 const HIDDEN_COMMANDS = new Set(['/exit']);
 
-// Known sub-options for commands that need arguments
-// Not perfectly dynamic, but covers the common cases
-const COMMAND_SUBOPTIONS: Record<string, Array<{ value: string; label: string }>> = {
-  '/model': [
-    { value: 'opus', label: 'Opus 4.6 (1M context)' },
-    { value: 'sonnet', label: 'Sonnet 4.6' },
-    { value: 'haiku', label: 'Haiku 4.5' },
-  ],
-  '/effort': [
-    { value: 'low', label: 'Low effort' },
-    { value: 'medium', label: 'Medium effort' },
-    { value: 'high', label: 'High effort' },
-    { value: 'max', label: 'Max effort' },
-  ],
-  '/permission-mode': [
-    { value: 'default', label: 'Default' },
-    { value: 'auto', label: 'Auto-approve' },
-    { value: 'plan', label: 'Plan mode' },
-    { value: 'bypassPermissions', label: 'Bypass all permissions' },
-  ],
-};
+// Sub-options for /model and /effort only
+const MODEL_OPTIONS = [
+  { value: 'opus', label: 'Opus 4.6 (1M context)' },
+  { value: 'sonnet', label: 'Sonnet 4.6' },
+  { value: 'haiku', label: 'Haiku 4.5' },
+];
+
+const EFFORT_OPTIONS = [
+  { value: 'low', label: 'Low effort' },
+  { value: 'medium', label: 'Medium effort' },
+  { value: 'high', label: 'High effort' },
+  { value: 'max', label: 'Max effort' },
+];
 
 // Commands that only affect Claude TUI, shown with a note
 const WEB_UI_NOTES: Record<string, string> = {
@@ -110,12 +102,16 @@ export default function InputBox() {
 
   const updateAutocomplete = useCallback(
     async (text: string) => {
-      // Sub-options: "/model ", "/effort " etc — show argument suggestions
+      // Sub-options: "/model " or "/effort " — show argument suggestions
       if (text.startsWith('/') && text.includes(' ')) {
         const spaceIdx = text.indexOf(' ');
         const cmd = text.slice(0, spaceIdx);
         const arg = text.slice(spaceIdx + 1).toLowerCase();
-        const options = COMMAND_SUBOPTIONS[cmd];
+
+        let options: Array<{ value: string; label: string }> | null = null;
+        if (cmd === '/model') options = MODEL_OPTIONS;
+        else if (cmd === '/effort') options = EFFORT_OPTIONS;
+
         if (options) {
           const matches = options.filter(o =>
             o.value.toLowerCase().startsWith(arg) || o.label.toLowerCase().includes(arg)
@@ -127,7 +123,7 @@ export default function InputBox() {
             return;
           }
         }
-        // No sub-options for this command — close dropdown
+        // No sub-options for this command — close dropdown, user types freely
         closeAutocomplete();
         return;
       }

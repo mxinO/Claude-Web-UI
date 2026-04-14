@@ -255,6 +255,16 @@ export function registerApiRoutes(app: Express): void {
     res.json(getCachedCommands());
   });
 
+  // GET /api/claude-sessions — list recent Claude Code JSONL sessions
+  router.get('/claude-sessions', (_req, res) => {
+    try {
+      const sessions = listClaudeSessions();
+      res.json(sessions);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // List directory contents (1 level) for @file autocomplete and file explorer
   router.get('/ls', (req, res) => {
     const dirPath = (req.query.path as string) || process.cwd();
@@ -320,6 +330,121 @@ function extractCommandResponse(capture: string, command: string): string {
     .map(l => l.replace(/^\s*⎿\s*/, '').trimEnd())
     .join('\n')
     .trim();
+}
+
+interface ClaudeSession {
+  id: string;
+  date: string;
+  model: string | null;
+  name: string | null;
+  preview: string | null;
+}
+
+/** Read recent Claude Code JSONL sessions from ~/.claude/projects/ */
+function listClaudeSessions(): ClaudeSession[] {
+  const homeDir = process.env.HOME || '/root';
+  const projectsDir = path.join(homeDir, '.claude', 'projects');
+
+  // Map cwd to project directory name (e.g. /home/mxin → -home-mxin)
+  const cwd = process.cwd();
+  const projectDirName = cwd.replace(/\//g, '-');
+
+  // Find matching project directory
+  let projectDir: string | null = null;
+  try {
+    const dirs = fs.readdirSync(projectsDir);
+    // Prefer exact match, fall back to closest prefix
+    if (dirs.includes(projectDirName)) {
+      projectDir = path.join(projectsDir, projectDirName);
+    } else {
+      // Try to find a directory matching the cwd
+      const match = dirs.find(d => d === projectDirName || cwd.startsWith(d.replace(/-/g, '/')));
+      if (match) projectDir = path.join(projectsDir, match);
+    }
+  } catch {
+    return [];
+  }
+
+  if (!projectDir) return [];
+
+  // List all .jsonl files sorted by mtime desc, take top 20
+  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date }> = [];
+  try {
+    const entries = fs.readdirSync(projectDir);
+    for (const entry of entries) {
+      if (!entry.endsWith('.jsonl')) continue;
+      const fullPath = path.join(projectDir, entry);
+      try {
+        const stat = fs.statSync(fullPath);
+        jsonlFiles.push({ name: entry, fullPath, mtime: stat.mtime });
+      } catch { /* skip */ }
+    }
+  } catch {
+    return [];
+  }
+
+  jsonlFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  jsonlFiles = jsonlFiles.slice(0, 20);
+
+  const sessions: ClaudeSession[] = [];
+
+  for (const file of jsonlFiles) {
+    const sessionId = file.name.replace(/\.jsonl$/, '');
+    let model: string | null = null;
+    let preview: string | null = null;
+    let sessionName: string | null = null;
+    let lastUserText: string | null = null;
+
+    try {
+      const content = fs.readFileSync(file.fullPath, 'utf-8');
+      const lines = content.split('\n').filter(l => l.trim());
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+
+          // Pick up session name if present
+          if (entry.sessionName && !sessionName) {
+            sessionName = entry.sessionName;
+          }
+
+          // First assistant message → grab model
+          if (!model && entry.type === 'assistant' && entry.message?.model) {
+            model = entry.message.model;
+          }
+
+          // Track last user message for preview
+          if (entry.type === 'user') {
+            // Try to get text from message content
+            const msg = entry.message;
+            if (msg && Array.isArray(msg.content)) {
+              for (const part of msg.content) {
+                if (part.type === 'text' && typeof part.text === 'string') {
+                  lastUserText = part.text.trim();
+                }
+              }
+            } else if (typeof msg?.content === 'string') {
+              lastUserText = msg.content.trim();
+            }
+          }
+        } catch { /* skip bad lines */ }
+      }
+
+      if (lastUserText) {
+        preview = lastUserText.slice(-80);
+      }
+    } catch { /* skip unreadable */ }
+
+    sessions.push({
+      id: sessionId,
+      date: file.mtime.toISOString(),
+      model,
+      name: sessionName,
+      preview,
+    });
+  }
+
+  return sessions;
 }
 
 /** Scan workdir (up to 2 levels) for recently modified files, sorted by mtime desc */

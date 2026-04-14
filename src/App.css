@@ -1050,3 +1050,67 @@ body {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+
+/* ── Session picker ───────────────────────────────────────────── */
+
+.session-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 100;
+  min-width: 400px;
+}
+
+.session-picker-item {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.session-picker-item:hover {
+  background: var(--bg-hover);
+}
+
+.session-picker-item:last-child {
+  border-bottom: none;
+}
+
+.session-picker-date {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.session-picker-model {
+  color: var(--text-accent);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 80px;
+}
+
+.session-picker-preview {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.session-id-clickable {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--text-secondary);
+}
+
+.session-id-clickable:hover {
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}

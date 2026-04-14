@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Session } from '../types';
+import SessionPicker from './SessionPicker';
 
 interface HeaderProps {
   session: Session | null;
@@ -8,6 +9,8 @@ interface HeaderProps {
 
 export default function Header({ session, connected }: HeaderProps) {
   const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const sessionIdRef = useRef<HTMLSpanElement>(null);
 
   // Fetch current model on mount and when a command is executed
   useEffect(() => {
@@ -28,12 +31,40 @@ export default function Header({ session, connected }: HeaderProps) {
 
   const displayModel = currentModel || session?.model;
 
+  async function handleSessionSelect(sessionId: string) {
+    setPickerVisible(false);
+    try {
+      await fetch('/api/send-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: `/resume ${sessionId}` }),
+      });
+      // Notify app to refresh
+      window.dispatchEvent(new CustomEvent('claude-command-executed', {
+        detail: { command: `/resume ${sessionId}` }
+      }));
+    } catch { /* ignore */ }
+  }
+
   return (
-    <div className="header">
+    <div className="header" style={{ position: 'relative' }}>
       <span style={{ fontWeight: 'bold' }}>Claude Code Web UI</span>
       {session && (
         <>
-          <span className="session-info">Session: {session.id.slice(0, 8)}...</span>
+          <span
+            ref={sessionIdRef}
+            className="session-info session-id-clickable"
+            title="Click to switch session"
+            onClick={() => setPickerVisible(v => !v)}
+            style={{ position: 'relative' }}
+          >
+            Session: {session.id.slice(0, 8)}...
+            <SessionPicker
+              visible={pickerVisible}
+              onClose={() => setPickerVisible(false)}
+              onSelect={handleSessionSelect}
+            />
+          </span>
           {session.cwd && (
             <span className="session-info" title={session.cwd}>
               {session.cwd.length > 40 ? '...' + session.cwd.slice(-37) : session.cwd}
