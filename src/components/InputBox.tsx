@@ -20,29 +20,16 @@ const FALLBACK_COMMANDS = [
   { command: '/exit', description: 'Exit the REPL' },
 ];
 
-// Sub-menus for commands that need them
-const SUBMENU_COMMANDS = new Set(['/model', '/effort']);
+// Commands to hide from autocomplete (managed by the web UI server)
+const HIDDEN_COMMANDS = new Set(['/exit']);
 
-// Commands that only affect Claude TUI, not useful in web UI
+// Commands that only affect Claude TUI, shown with a note
 const WEB_UI_NOTES: Record<string, string> = {
   '/clear': '(clears Claude context only, not web UI)',
-  '/exit': '(exits Claude TUI)',
   '/terminal-setup': '(not needed in web UI)',
   '/color': '(affects TUI only)',
   '/theme': '(affects TUI only)',
 };
-
-const MODEL_OPTIONS = [
-  { value: 'opus', label: 'Opus 4.6 (1M context)' },
-  { value: 'sonnet', label: 'Sonnet 4.6' },
-  { value: 'haiku', label: 'Haiku 4.5' },
-];
-
-const EFFORT_OPTIONS = [
-  { value: 'low', label: 'Low effort' },
-  { value: 'medium', label: 'Medium effort' },
-  { value: 'high', label: 'High effort' },
-];
 
 /** Fetch slash commands from the server (scraped from Claude TUI) */
 let commandsCache: Array<{ command: string; description: string; category?: string }> | null = null;
@@ -61,7 +48,7 @@ async function getSlashCommands(): Promise<Array<{ command: string; description:
   return FALLBACK_COMMANDS;
 }
 
-type AutocompleteMode = 'none' | 'slash' | 'model' | 'effort' | 'file';
+type AutocompleteMode = 'none' | 'slash' | 'file';
 
 export default function InputBox() {
   const [value, setValue] = useState('');
@@ -102,10 +89,11 @@ export default function InputBox() {
   const updateAutocomplete = useCallback(
     async (text: string) => {
       // Slash commands: input starts with /
-      if (text.startsWith('/') && !text.includes(' ')) {
+      if (text.startsWith('/')) {
         const query = text.toLowerCase();
         const commands = await getSlashCommands();
         const matches = commands.filter((c) =>
+          !HIDDEN_COMMANDS.has(c.command) &&
           c.command.toLowerCase().startsWith(query),
         );
         setAcMode('slash');
@@ -115,37 +103,8 @@ export default function InputBox() {
             return {
               label: c.command,
               detail: note ? `${c.description} ${note}` : c.description,
-              icon: SUBMENU_COMMANDS.has(c.command) ? '>' : undefined,
             };
           }),
-        );
-        setAcIndex(0);
-        return;
-      }
-
-      // Model submenu: "/model " typed
-      if (text.startsWith('/model ')) {
-        const sub = text.slice(7).toLowerCase();
-        const matches = MODEL_OPTIONS.filter((m) =>
-          m.value.startsWith(sub) || m.label.toLowerCase().includes(sub),
-        );
-        setAcMode('model');
-        setAcItems(
-          matches.map((m) => ({ label: m.value, detail: m.label })),
-        );
-        setAcIndex(0);
-        return;
-      }
-
-      // Effort submenu: "/effort " typed
-      if (text.startsWith('/effort ')) {
-        const sub = text.slice(8).toLowerCase();
-        const matches = EFFORT_OPTIONS.filter((m) =>
-          m.value.startsWith(sub) || m.label.toLowerCase().includes(sub),
-        );
-        setAcMode('effort');
-        setAcItems(
-          matches.map((m) => ({ label: m.value, detail: m.label })),
         );
         setAcIndex(0);
         return;
@@ -244,6 +203,10 @@ export default function InputBox() {
       const data = await res.json();
       if (data.response) {
         setError(`${command}: ${data.response}`);
+        // Notify app to refresh model/session info
+        window.dispatchEvent(new CustomEvent('claude-command-executed', {
+          detail: { command, response: data.response }
+        }));
       } else if (!res.ok) {
         setError(data.error || `Failed: ${command}`);
       }
@@ -260,16 +223,11 @@ export default function InputBox() {
       if (!item) return;
 
       if (acMode === 'slash') {
-        if (SUBMENU_COMMANDS.has(item.label)) {
-          setValue(item.label + ' ');
-        } else {
-          // Slash commands use special endpoint to capture TUI response
-          sendSlashRef.current(item.label);
-        }
-      } else if (acMode === 'model') {
-        sendSlashRef.current('/model ' + item.label);
-      } else if (acMode === 'effort') {
-        sendSlashRef.current('/effort ' + item.label);
+        // Send the full text in the input (allows "/model opus" typed manually)
+        const commandText = value.trim().startsWith('/') && value.includes(' ')
+          ? value.trim() // user typed "/model opus" — send as-is
+          : item.label;  // user selected from dropdown — send the command
+        sendSlashRef.current(commandText);
       } else if (acMode === 'file') {
         const atIdx = atPosRef.current;
         const before = value.slice(0, atIdx);
