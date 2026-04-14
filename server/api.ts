@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import { Router, Express } from 'express';
 import {
   listSessions,
@@ -194,5 +195,72 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
+  // List directory contents (1 level) for @file autocomplete and file explorer
+  router.get('/ls', (req, res) => {
+    const dirPath = (req.query.path as string) || process.cwd();
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      const items = entries
+        .filter(e => !e.name.startsWith('.')) // skip hidden files
+        .map(e => ({
+          name: e.name,
+          path: path.join(dirPath, e.name),
+          isDir: e.isDirectory(),
+        }))
+        .sort((a, b) => {
+          // Directories first, then alphabetical
+          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+      res.json({ path: dirPath, items });
+    } catch (err) {
+      res.status(404).json({ error: `Cannot read directory: ${err}` });
+    }
+  });
+
+  // List recently modified files in workdir (for @file suggestions)
+  router.get('/recent-files', (req, res) => {
+    const dirPath = (req.query.path as string) || process.cwd();
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    try {
+      const files = getRecentFiles(dirPath, limit);
+      res.json({ path: dirPath, files });
+    } catch (err) {
+      res.status(500).json({ error: `Failed to list recent files: ${err}` });
+    }
+  });
+
   app.use('/api', router);
+}
+
+/** Scan workdir (up to 2 levels) for recently modified files, sorted by mtime desc */
+function getRecentFiles(dirPath: string, limit: number): Array<{ name: string; path: string; mtime: string }> {
+  const results: Array<{ name: string; path: string; mtime: Date }> = [];
+
+  function scan(dir: string, depth: number) {
+    if (depth > 2) return;
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'dist' || e.name === '__pycache__') continue;
+        const fullPath = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          scan(fullPath, depth + 1);
+        } else {
+          try {
+            const stat = fs.statSync(fullPath);
+            results.push({ name: e.name, path: fullPath, mtime: stat.mtime });
+          } catch { /* skip unreadable */ }
+        }
+      }
+    } catch { /* skip unreadable dirs */ }
+  }
+
+  scan(dirPath, 0);
+  results.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+  return results.slice(0, limit).map(r => ({
+    name: r.name,
+    path: r.path,
+    mtime: r.mtime.toISOString(),
+  }));
 }
