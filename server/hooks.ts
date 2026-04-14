@@ -1,5 +1,6 @@
 import fs from 'fs';
 import type { Express, Request, Response } from 'express';
+import path from 'path';
 import {
   createSession,
   endSession,
@@ -8,6 +9,7 @@ import {
   updateEvent,
   getEvent,
   createPermissionRequest,
+  switchDb,
 } from './db.js';
 import type { DbEvent } from './types.js';
 import { startStreaming, stopStreaming } from './streaming.js';
@@ -176,6 +178,22 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     if (!managedSessionId) {
       managedSessionId = session_id;
       waitingForSessionStart = false;
+
+      // Switch to per-session DB stored alongside Claude's session JSONL
+      // Path: ~/.claude/projects/<project-dir>/<session-id>.webui.db
+      if (cwd) {
+        const homeDir = process.env.HOME || '/root';
+        const projectDirName = cwd.replace(/\//g, '-');
+        const sessionDbPath = path.join(homeDir, '.claude', 'projects', projectDirName, `${session_id}.webui.db`);
+        try {
+          fs.mkdirSync(path.dirname(sessionDbPath), { recursive: true });
+          switchDb(sessionDbPath);
+          if (DEBUG) console.log(`[hooks] Switched DB to: ${sessionDbPath}`);
+        } catch (err) {
+          console.error(`[hooks] Failed to switch DB: ${err}`);
+        }
+      }
+
       if (DEBUG) console.log(`[hooks] Managed session set to: ${session_id}`);
     }
     createSession(session_id, model, cwd);

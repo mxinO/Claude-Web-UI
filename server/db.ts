@@ -46,6 +46,18 @@ export function getDb(): Database.Database {
   return db;
 }
 
+/** Close current DB and open a new one at a different path.
+ *  Used when we learn the session ID and want to switch to the per-session DB. */
+export function switchDb(newPath: string): void {
+  if (db) db.close();
+  initDb(newPath);
+}
+
+/** Get the current DB file path */
+export function getDbPath(): string | null {
+  return db ? (db as unknown as { name: string }).name : null;
+}
+
 export function createSession(id: string, model?: string, cwd?: string): void {
   const d = getDb();
   d.prepare(

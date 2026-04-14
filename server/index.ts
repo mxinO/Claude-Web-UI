@@ -21,12 +21,10 @@ const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
 const CLAUDE_CWD = process.argv.find((a, i) => i > 1 && !a.startsWith('-')) || process.cwd();
 
 // --- Database ---
-const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'claude-web-ui.db');
-initDb(dbPath);
-
-const maxAgeDays = parseInt(process.env.MAX_EVENT_AGE_DAYS || '30', 10);
-pruneOldEvents(maxAgeDays);
-setInterval(() => pruneOldEvents(maxAgeDays), 60 * 60 * 1000);
+// Start with a temporary DB; SessionStart hook will switch to the per-session DB
+const tmpDbPath = path.join(__dirname, '..', 'data', 'claude-web-ui-tmp.db');
+import('fs').then(fs => fs.mkdirSync(path.dirname(tmpDbPath), { recursive: true }));
+initDb(tmpDbPath);
 
 // --- Express + WebSocket ---
 const app = express();
