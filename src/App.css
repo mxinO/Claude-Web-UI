@@ -1109,3 +1109,91 @@ body {
   color: var(--text-accent);
   border-color: var(--text-accent);
 }
+
+/* ── /btw side question toast ─────────────────────────────────── */
+
+.btw-toast-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 80px;
+}
+
+.btw-toast {
+  background: var(--bg-secondary);
+  border: 1px solid var(--text-accent);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  max-width: 600px;
+  width: 90%;
+  max-height: 200px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.btw-toast--expanded {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.btw-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.btw-toast-label {
+  color: var(--text-accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.btw-toast-question {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.btw-toast-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.btw-toast-close:hover {
+  color: var(--text-primary);
+}
+
+.btw-toast-body {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.btw-toast-preview {
+  cursor: pointer;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.btw-toast-expand {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-accent);
+}

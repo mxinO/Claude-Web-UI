@@ -6,6 +6,7 @@ import InputBox from './components/InputBox';
 import ReconnectSummaryWidget from './components/ReconnectSummary';
 import ThinkingIndicator from './components/ThinkingIndicator';
 import StreamingCard from './components/StreamingCard';
+import BtwToast from './components/BtwToast';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
@@ -13,6 +14,7 @@ import './App.css';
 
 export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
+  const [btwData, setBtwData] = useState<{ question: string; response: string } | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
   const { events, addEvent, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
@@ -37,6 +39,18 @@ export default function App() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
   const prevEventCountRef = useRef(0);
+
+  // Listen for /btw responses
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.question && detail?.response) {
+        setBtwData({ question: detail.question, response: detail.response });
+      }
+    };
+    window.addEventListener('btw-response', handler);
+    return () => window.removeEventListener('btw-response', handler);
+  }, []);
 
   // Auto-scroll to bottom on new events
   useEffect(() => {
@@ -146,6 +160,15 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* /btw side question toast */}
+      {btwData && (
+        <BtwToast
+          question={btwData.question}
+          response={btwData.response}
+          onClose={() => setBtwData(null)}
+        />
       )}
     </div>
   );

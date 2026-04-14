@@ -9,6 +9,7 @@ const LINE_HEIGHT = 20; // px
 
 // Fallback commands for mock mode or if API is unavailable
 const FALLBACK_COMMANDS = [
+  { command: '/btw', description: 'Ask a side question without interrupting the main conversation' },
   { command: '/model', description: 'Switch model' },
   { command: '/compact', description: 'Compact conversation' },
   { command: '/effort', description: 'Set effort level' },
@@ -17,6 +18,8 @@ const FALLBACK_COMMANDS = [
   { command: '/review', description: 'Review a pull request' },
   { command: '/diff', description: 'View uncommitted changes' },
   { command: '/clear', description: 'Clear conversation history' },
+  { command: '/resume', description: 'Resume a previous session' },
+  { command: '/status', description: 'Show status and version info' },
   { command: '/exit', description: 'Exit the REPL' },
 ];
 
@@ -291,7 +294,33 @@ export default function InputBox() {
     if (!trimmed) return;
     setError('');
 
-    // Slash commands use the special endpoint that captures TUI response
+    // /btw side questions — special handling with floating toast response
+    if (trimmed.startsWith('/btw ')) {
+      setValue('');
+      setError('Asking side question...');
+      try {
+        const res = await fetch('/api/send-btw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: trimmed.slice(5) }),
+        });
+        const data = await res.json();
+        if (data.response) {
+          // Dispatch event for App to show as floating toast
+          window.dispatchEvent(new CustomEvent('btw-response', {
+            detail: { question: trimmed.slice(5), response: data.response }
+          }));
+          setError('');
+        } else {
+          setError('/btw: no response received');
+        }
+      } catch (err) {
+        setError(`/btw failed: ${err}`);
+      }
+      return;
+    }
+
+    // Other slash commands use the special endpoint that captures TUI response
     if (trimmed.startsWith('/')) {
       sendSlashRef.current(trimmed);
       return;

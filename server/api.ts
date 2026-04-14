@@ -152,6 +152,56 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
+  // POST /api/send-btw — send a /btw side question, poll for popup response, dismiss
+  router.post('/send-btw', async (req, res) => {
+    const { question } = req.body as { question?: string };
+    if (typeof question !== 'string') {
+      res.status(400).json({ error: 'question (string) is required' });
+      return;
+    }
+    try {
+      sendInput(`/btw ${question}`);
+
+      // Poll for the /btw popup response.
+      // The popup shows "Esc to dismiss" immediately but the content streams in.
+      // Wait until the content stabilizes (stops changing between polls).
+      let response = '';
+      let lastCapture = '';
+      let stableCount = 0;
+      for (let i = 0; i < 40; i++) { // up to 20 seconds
+        await new Promise(resolve => setTimeout(resolve, 500));
+        try {
+          const capture = execSync(
+            `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -40`,
+            { encoding: 'utf-8', timeout: 3000 }
+          );
+          if (capture.includes('Esc to dismiss')) {
+            if (capture === lastCapture) {
+              stableCount++;
+              // Content hasn't changed for 2 consecutive polls — done streaming
+              if (stableCount >= 2) {
+                response = extractBtwResponse(capture);
+                break;
+              }
+            } else {
+              stableCount = 0;
+            }
+            lastCapture = capture;
+          }
+        } catch { /* tmux not ready */ }
+      }
+
+      // Dismiss the popup
+      try {
+        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+      } catch { /* ignore */ }
+
+      res.json({ ok: true, question, response });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // GET /api/reconnect-summary?session_id=X&after_event_id=Y
   router.get('/reconnect-summary', (req, res) => {
     const { session_id, after_event_id } = req.query;
@@ -369,6 +419,54 @@ function extractCommandResponse(capture: string, command: string): string {
   // Clean up: strip ⎿ prefix (Claude's response indicator for commands)
   return responseLines
     .map(l => l.replace(/^\s*⎿\s*/, '').trimEnd())
+    .join('\n')
+    .trim();
+}
+
+/** Parse the /btw popup response from tmux capture.
+ *  The popup looks like:
+ *    ❯ /btw question
+ *      /btw question
+ *        answer text
+ *      ↑/↓ scroll · f to fork · Esc to dismiss
+ */
+function extractBtwResponse(capture: string): string {
+  const lines = capture.split('\n');
+
+  // Find the "Esc to dismiss" line (bottom of popup)
+  let dismissIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes('Esc to dismiss')) {
+      dismissIdx = i;
+      break;
+    }
+  }
+  if (dismissIdx === -1) return '';
+
+  // Find the /btw command line (top of popup content)
+  let btwIdx = -1;
+  for (let i = dismissIdx - 1; i >= 0; i--) {
+    if (lines[i].trim().startsWith('/btw ')) {
+      btwIdx = i;
+      break;
+    }
+  }
+  if (btwIdx === -1) return '';
+
+  // Everything between the /btw line and the dismiss line is the response
+  const responseLines = lines.slice(btwIdx + 1, dismissIdx);
+
+  // Clean up: strip leading whitespace (popup is indented)
+  const nonEmpty = responseLines.filter(l => l.trim().length > 0);
+  if (nonEmpty.length === 0) return '';
+
+  const minIndent = Math.min(...nonEmpty.map(l => {
+    const match = l.match(/^( +)/);
+    return match ? match[1].length : 0;
+  }));
+
+  return responseLines
+    .map(l => l.trim().length === 0 ? '' : l.slice(minIndent))
     .join('\n')
     .trim();
 }
