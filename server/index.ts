@@ -48,7 +48,7 @@ server.listen(PORT, HOST, () => {
 
   if (MOCK) {
     console.log('Running in --mock mode (no tmux/Claude)');
-    setManagedSessionId(null); // accept all sessions in mock mode
+    setManagedSessionId('mock-session'); // only accept mock events from the web UI
     return;
   }
 
