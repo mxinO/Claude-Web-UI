@@ -23,6 +23,15 @@ const FALLBACK_COMMANDS = [
 // Sub-menus for commands that need them
 const SUBMENU_COMMANDS = new Set(['/model', '/effort']);
 
+// Commands that only affect Claude TUI, not useful in web UI
+const WEB_UI_NOTES: Record<string, string> = {
+  '/clear': '(clears Claude context only, not web UI)',
+  '/exit': '(exits Claude TUI)',
+  '/terminal-setup': '(not needed in web UI)',
+  '/color': '(affects TUI only)',
+  '/theme': '(affects TUI only)',
+};
+
 const MODEL_OPTIONS = [
   { value: 'opus', label: 'Opus 4.6 (1M context)' },
   { value: 'sonnet', label: 'Sonnet 4.6' },
@@ -100,11 +109,14 @@ export default function InputBox() {
         );
         setAcMode('slash');
         setAcItems(
-          matches.map((c) => ({
-            label: c.command,
-            detail: c.description,
-            icon: SUBMENU_COMMANDS.has(c.command) ? '>' : undefined,
-          })),
+          matches.map((c) => {
+            const note = WEB_UI_NOTES[c.command];
+            return {
+              label: c.command,
+              detail: note ? `${c.description} ${note}` : c.description,
+              icon: SUBMENU_COMMANDS.has(c.command) ? '>' : undefined,
+            };
+          }),
         );
         setAcIndex(0);
         return;
