@@ -69,6 +69,7 @@ export default function InputBox() {
   const historyRef = useRef<string[]>([]);
   const historyIndexRef = useRef(-1);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendRef = useRef<(text: string) => Promise<void>>();
 
   // Autocomplete state
   const [acMode, setAcMode] = useState<AutocompleteMode>('none');
@@ -238,16 +239,16 @@ export default function InputBox() {
         if (SUBMENU_COMMANDS.has(item.label)) {
           setValue(item.label + ' ');
         } else {
-          send(item.label);
+          sendRef.current?.(item.label);
           setValue('');
           closeAutocomplete();
         }
       } else if (acMode === 'model') {
-        send('/model ' + item.label);
+        sendRef.current?.('/model ' + item.label);
         setValue('');
         closeAutocomplete();
       } else if (acMode === 'effort') {
-        send('/effort ' + item.label);
+        sendRef.current?.('/effort ' + item.label);
         setValue('');
         closeAutocomplete();
       } else if (acMode === 'file') {
@@ -267,7 +268,7 @@ export default function InputBox() {
         }
       }
     },
-    [acMode, acItems, value],
+    [acMode, acItems, value, closeAutocomplete],
   );
 
   const send = useCallback(async (text: string) => {
@@ -304,6 +305,7 @@ export default function InputBox() {
       setError(`Network error: ${err}`);
     }
   }, []);
+  sendRef.current = send;
 
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
