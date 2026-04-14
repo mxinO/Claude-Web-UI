@@ -68,16 +68,15 @@ export default function App() {
       cancelledRef.current = true;
       const restoredText = (e as CustomEvent).detail?.restoredText;
 
-      if (streamingText) {
-        // Late cancel — had streaming output, show cancelled card
-        // Don't restore prompt even if server detected text (it's from the interrupted response)
-        setCancelledText(streamingText);
-      } else if (restoredText) {
-        // Early cancel — no streaming yet, Claude restored the prompt
+      if (restoredText) {
+        // Early cancel — Claude restored the prompt in the TUI (server confirmed)
         window.dispatchEvent(new CustomEvent('insert-input-text', {
           detail: { text: restoredText }
         }));
         removeLastUserMessage();
+      } else if (streamingText) {
+        // Late cancel — had streaming output, show cancelled card
+        setCancelledText(streamingText);
       }
 
       setStreamingText(null);
