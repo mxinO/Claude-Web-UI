@@ -70,11 +70,10 @@ export default function App() {
 
       if (streamingText) {
         // Late cancel — had streaming output, show cancelled card
+        // Don't restore prompt even if server detected text (it's from the interrupted response)
         setCancelledText(streamingText);
-      }
-
-      if (restoredText) {
-        // Claude restored the prompt — put it back in our input and remove from DB
+      } else if (restoredText) {
+        // Early cancel — no streaming yet, Claude restored the prompt
         window.dispatchEvent(new CustomEvent('insert-input-text', {
           detail: { text: restoredText }
         }));

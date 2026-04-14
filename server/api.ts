@@ -183,16 +183,20 @@ export function registerApiRoutes(app: Express): void {
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Check the prompt area (bottom of visible pane) for restored text
-      // The prompt is between two separator lines: ────\n❯ text\n────
+      // Check the prompt area at the bottom of the VISIBLE pane (not scrollback).
+      // No -S flag = captures only the visible area.
+      // The prompt is: separator → ❯ text → separator → status bar
       let restoredText = '';
       try {
-        const bottom = execSync(
-          `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -4`,
+        const visible = execSync(
+          `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
           { encoding: 'utf-8', timeout: 3000 }
         );
-        const lines = bottom.split('\n');
-        for (const line of lines) {
+        // Get last few non-empty lines (the prompt area)
+        const lines = visible.split('\n').filter(l => l.trim());
+        // Look for ❯ with text in the last 4 lines only
+        const promptArea = lines.slice(-4);
+        for (const line of promptArea) {
           const m = line.match(/^❯\s+(.*\S)/);
           if (m) { restoredText = m[1]; break; }
         }
