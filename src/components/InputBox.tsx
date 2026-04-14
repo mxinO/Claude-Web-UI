@@ -107,46 +107,43 @@ export default function InputBox() {
     el.style.height = `${Math.min(scrollH, maxH)}px`;
   }, [value]);
 
-  // Update autocomplete function — defined as a plain function, referenced via ref
-  const updateAutocompleteRef = useRef<(text: string) => void>();
-
-  // Trigger autocomplete on every value change
+  // Update autocomplete when value changes
   useEffect(() => {
-    updateAutocompleteRef.current?.(value);
-  }, [value]);
+    let cancelled = false;
+    const text = value;
 
-  // Define the autocomplete logic (runs every render to capture latest closures)
-  updateAutocompleteRef.current = async (text: string) => {
-      // Sub-options: "/model " or "/effort " — show argument suggestions
-      if (text.startsWith('/') && text.includes(' ')) {
-        const spaceIdx = text.indexOf(' ');
-        const cmd = text.slice(0, spaceIdx);
-        const arg = text.slice(spaceIdx + 1).toLowerCase();
+    // Sub-options: "/model " or "/effort " — show argument suggestions
+    if (text.startsWith('/') && text.includes(' ')) {
+      const spaceIdx = text.indexOf(' ');
+      const cmd = text.slice(0, spaceIdx);
+      const arg = text.slice(spaceIdx + 1).toLowerCase();
 
-        let options: Array<{ value: string; label: string }> | null = null;
-        if (cmd === '/model') options = MODEL_OPTIONS;
-        else if (cmd === '/effort') options = EFFORT_OPTIONS;
+      let options: Array<{ value: string; label: string }> | null = null;
+      if (cmd === '/model') options = MODEL_OPTIONS;
+      else if (cmd === '/effort') options = EFFORT_OPTIONS;
 
-        if (options) {
-          const matches = options.filter(o =>
-            o.value.toLowerCase().startsWith(arg) || o.label.toLowerCase().includes(arg)
-          );
-          if (matches.length > 0) {
-            setAcMode('slash');
-            setAcItems(matches.map(o => ({ label: o.value, detail: o.label })));
-            setAcIndex(0);
-            return;
-          }
+      if (options) {
+        const matches = options.filter(o =>
+          o.value.toLowerCase().startsWith(arg) || o.label.toLowerCase().includes(arg)
+        );
+        if (matches.length > 0) {
+          setAcMode('slash');
+          setAcItems(matches.map(o => ({ label: o.value, detail: o.label })));
+          setAcIndex(0);
+          return () => { cancelled = true; };
         }
-        // No sub-options for this command — close dropdown, user types freely
-        closeAutocomplete();
-        return;
       }
+      // No sub-options — close
+      setAcMode('none');
+      setAcItems([]);
+      return () => { cancelled = true; };
+    }
 
-      // Slash commands: input starts with / and no space yet (still typing the command name)
-      if (text.startsWith('/') && !text.includes(' ')) {
+    // Slash commands: input starts with / and no space yet
+    if (text.startsWith('/') && !text.includes(' ')) {
+      getSlashCommands().then(commands => {
+        if (cancelled) return;
         const query = text.toLowerCase();
-        const commands = await getSlashCommands();
         const matches = commands.filter((c) =>
           !HIDDEN_COMMANDS.has(c.command) &&
           c.command.toLowerCase().startsWith(query),
@@ -162,22 +159,25 @@ export default function InputBox() {
           }),
         );
         setAcIndex(0);
-        return;
-      }
+      });
+      return () => { cancelled = true; };
+    }
 
-      // @ file completion: find last @ not preceded by a space-less context
-      const atMatch = text.match(/@([^\s]*)$/);
-      if (atMatch) {
-        const atIdx = text.lastIndexOf('@');
-        atPosRef.current = atIdx;
-        const pathPart = atMatch[1];
-        fetchFileSuggestions(pathPart);
-        return;
-      }
+    // @ file completion
+    const atMatch = text.match(/@([^\s]*)$/);
+    if (atMatch) {
+      const atIdx = text.lastIndexOf('@');
+      atPosRef.current = atIdx;
+      fetchFileSuggestions(atMatch[1]);
+      return () => { cancelled = true; };
+    }
 
-      // Nothing matched
-      closeAutocomplete();
-  };
+    // Nothing matched — close
+    setAcMode('none');
+    setAcItems([]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
 
   const fetchFileSuggestions = useCallback(async (pathPart: string) => {
     try {
