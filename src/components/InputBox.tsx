@@ -489,6 +489,7 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
             className="stop-button"
             onClick={async () => {
               try { await fetch('/api/interrupt', { method: 'POST' }); } catch { /* ignore */ }
+              window.dispatchEvent(new CustomEvent('claude-interrupted'));
             }}
             title="Stop (interrupt current operation)"
           >

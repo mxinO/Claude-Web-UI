@@ -17,10 +17,12 @@ export default function App() {
   const [btwData, setBtwData] = useState<{ question: string; response: string } | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
+  const [cancelledText, setCancelledText] = useState<string | null>(null);
   const { events, addEvent, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onStreaming = useCallback((text: string) => {
     setStreamingText(text);
+    setCancelledText(null); // clear any previous cancelled state
   }, []);
 
   const onEvent = useCallback((event: TimelineEvent) => {
@@ -51,6 +53,19 @@ export default function App() {
     window.addEventListener('btw-response', handler);
     return () => window.removeEventListener('btw-response', handler);
   }, []);
+
+  // Listen for interrupt (stop button)
+  useEffect(() => {
+    const handler = () => {
+      if (streamingText) {
+        setCancelledText(streamingText);
+      }
+      setStreamingText(null);
+      setStreamingExpanded(false);
+    };
+    window.addEventListener('claude-interrupted', handler);
+    return () => window.removeEventListener('claude-interrupted', handler);
+  }, [streamingText]);
 
   // Auto-scroll to bottom on new events
   useEffect(() => {
@@ -136,6 +151,22 @@ export default function App() {
             />
           )}
 
+          {/* Cancelled: show what was captured before interruption */}
+          {cancelledText && !streamingText && (
+            <div className="chat-row chat-row--assistant">
+              <div
+                className="tool-card tool-card--cancelled"
+                onClick={() => {
+                  setStreamingExpanded(true);
+                }}
+                style={{ cursor: 'pointer' }}
+              >
+                <span className="tool-card-icon">⏹</span>
+                <span className="tool-card-summary">Cancelled — click to see partial response</span>
+              </div>
+            </div>
+          )}
+
           {/* Thinking dots — only before streaming starts */}
           {isThinking && <ThinkingIndicator />}
 
@@ -151,15 +182,15 @@ export default function App() {
       )}
 
       {/* Streaming expanded popup */}
-      {streamingExpanded && streamingText && (
-        <div className="modal-overlay" onClick={() => setStreamingExpanded(false)}>
+      {streamingExpanded && (streamingText || cancelledText) && (
+        <div className="modal-overlay" onClick={() => { setStreamingExpanded(false); setCancelledText(null); }}>
           <div className="modal-container" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Responding...</span>
-              <button className="modal-close" onClick={() => setStreamingExpanded(false)}>×</button>
+              <span className="modal-title">{cancelledText && !streamingText ? 'Cancelled (partial response)' : 'Responding...'}</span>
+              <button className="modal-close" onClick={() => { setStreamingExpanded(false); setCancelledText(null); }}>×</button>
             </div>
             <div className="modal-body">
-              <pre className="streaming-expanded-text">{streamingText}</pre>
+              <pre className="streaming-expanded-text">{streamingText || cancelledText}</pre>
             </div>
           </div>
         </div>
