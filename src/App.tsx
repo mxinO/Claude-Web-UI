@@ -16,6 +16,7 @@ export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
   const [btwData, setBtwData] = useState<{ question: string; response: string } | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
+  const streamingTextRef = useRef<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
   const [cancelledText, setCancelledText] = useState<string | null>(null);
   const cancelledRef = useRef(false);
@@ -23,12 +24,14 @@ export default function App() {
 
   const onStreaming = useCallback((text: string) => {
     if (cancelledRef.current) return; // ignore streaming after cancel
+    streamingTextRef.current = text;
     setStreamingText(text);
     setCancelledText(null);
   }, []);
 
   const onEvent = useCallback((event: TimelineEvent) => {
     if (event.event_type === 'assistant_message') {
+      streamingTextRef.current = null;
       setStreamingText(null);
       setStreamingExpanded(false);
       cancelledRef.current = false;
@@ -77,16 +80,17 @@ export default function App() {
       }
 
       // If there was streaming output, show cancelled card with partial response
-      if (streamingText) {
-        setCancelledText(streamingText);
+      if (streamingTextRef.current) {
+        setCancelledText(streamingTextRef.current);
       }
 
+      streamingTextRef.current = null;
       setStreamingText(null);
       setStreamingExpanded(false);
     };
     window.addEventListener('claude-interrupted', handler);
     return () => window.removeEventListener('claude-interrupted', handler);
-  }, [streamingText, events]);
+  }, [removeLastUserMessage]);
 
   // Auto-scroll to bottom on new events
   useEffect(() => {

@@ -13,6 +13,7 @@ interface UseEventStoreReturn {
   hasMore: boolean;
   reconnectSummary: ReconnectSummary | null;
   setReconnectSummary: (summary: ReconnectSummary | null) => void;
+  removeLastUserMessage: () => void;
 }
 
 export function useEventStore(): UseEventStoreReturn {
