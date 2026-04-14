@@ -1197,3 +1197,22 @@ body {
   font-size: 11px;
   color: var(--text-accent);
 }
+
+/* ── Mode and effort badges ──────────────────────────────────── */
+
+.mode-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.effort-badge {
+  font-size: 11px;
+  padding: 1px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-secondary);
+}

@@ -7,36 +7,37 @@ interface HeaderProps {
   connected: boolean;
 }
 
+interface ClaudeStatus {
+  model: string | null;
+  cwd: string | null;
+  effort: string | null;
+  permissionMode: string | null;
+}
+
 export default function Header({ session, connected }: HeaderProps) {
-  const [currentModel, setCurrentModel] = useState<string | null>(null);
-  const [currentCwd, setCurrentCwd] = useState<string | null>(null);
+  const [status, setStatus] = useState<ClaudeStatus>({ model: null, cwd: null, effort: null, permissionMode: null });
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const sessionIdRef = useRef<HTMLSpanElement>(null);
 
-  // Fetch current model on mount and when a command is executed
+  // Fetch status on mount and when a command is executed
   useEffect(() => {
-    const fetchModel = () => {
-      fetch('/api/current-model')
+    const fetchStatus = () => {
+      fetch('/api/current-status')
         .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (data?.model) setCurrentModel(data.model);
-          if (data?.cwd) setCurrentCwd(data.cwd);
-        })
+        .then(data => { if (data) setStatus(data); })
         .catch(() => {});
     };
 
-    fetchModel();
+    fetchStatus();
 
-    // Listen for command executions (e.g. /model switch)
-    const handler = () => fetchModel();
+    const handler = () => fetchStatus();
     window.addEventListener('claude-command-executed', handler);
     return () => window.removeEventListener('claude-command-executed', handler);
   }, []);
 
-  const displayModel = currentModel || session?.model;
-  const displayCwd = currentCwd || session?.cwd;
-
-  const [switching, setSwitching] = useState(false);
+  const displayModel = status.model || session?.model;
+  const displayCwd = status.cwd || session?.cwd;
 
   async function handleSessionSelect(sessionId: string, cwd: string) {
     if (switching) return;
@@ -49,12 +50,24 @@ export default function Header({ session, connected }: HeaderProps) {
         body: JSON.stringify({ sessionId, cwd }),
       });
       if (res.ok) {
-        // Reload page — new Claude starts, new DB loads
         window.location.reload();
       }
     } catch { /* ignore */ }
     setSwitching(false);
   }
+
+  // Mode badge color
+  const modeColor = status.permissionMode === 'plan' ? 'var(--yellow)'
+    : status.permissionMode === 'bypass' ? 'var(--red)'
+    : status.permissionMode === 'auto' ? 'var(--green)'
+    : 'var(--text-secondary)';
+
+  const modeLabel = status.permissionMode === 'plan' ? 'Plan Mode'
+    : status.permissionMode === 'bypass' ? 'Bypass'
+    : status.permissionMode === 'auto' ? 'Auto'
+    : status.permissionMode === 'acceptEdits' ? 'Accept Edits'
+    : status.permissionMode === 'default' ? 'Default'
+    : null;
 
   return (
     <div className="header" style={{ position: 'relative' }}>
@@ -84,6 +97,16 @@ export default function Header({ session, connected }: HeaderProps) {
         </>
       )}
       {displayModel && <span className="model-badge">{displayModel}</span>}
+      {modeLabel && (
+        <span className="mode-badge" style={{ color: modeColor, borderColor: modeColor }}>
+          {modeLabel}
+        </span>
+      )}
+      {status.effort && (
+        <span className="effort-badge">
+          {status.effort}
+        </span>
+      )}
       <div className="status">
         <div className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
         <span>{connected ? 'Connected' : 'Disconnected'}</span>

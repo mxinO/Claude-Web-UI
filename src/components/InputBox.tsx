@@ -10,23 +10,31 @@ const LINE_HEIGHT = 20; // px
 // Fallback commands for mock mode or if API is unavailable
 const FALLBACK_COMMANDS = [
   { command: '/btw', description: 'Ask a side question without interrupting the main conversation' },
-  { command: '/model', description: 'Switch model' },
-  { command: '/compact', description: 'Compact conversation' },
-  { command: '/effort', description: 'Set effort level' },
-  { command: '/help', description: 'Show help' },
-  { command: '/cost', description: 'Show token costs' },
+  { command: '/model', description: 'Switch model (opus, sonnet, haiku)' },
+  { command: '/plan', description: 'Toggle plan mode — Claude plans before acting' },
+  { command: '/compact', description: 'Compact conversation to free context' },
+  { command: '/effort', description: 'Set effort level (low, medium, high, max)' },
+  { command: '/permission-mode', description: 'Switch permission mode' },
+  { command: '/cost', description: 'Show token costs and usage' },
+  { command: '/diff', description: 'View uncommitted changes and per-turn diffs' },
   { command: '/review', description: 'Review a pull request' },
-  { command: '/diff', description: 'View uncommitted changes' },
-  { command: '/clear', description: 'Clear conversation history' },
   { command: '/resume', description: 'Resume a previous session' },
-  { command: '/status', description: 'Show status and version info' },
+  { command: '/status', description: 'Show status, version, model, and account info' },
+  { command: '/branch', description: 'Create a branch of the conversation' },
+  { command: '/export', description: 'Export conversation to file or clipboard' },
+  { command: '/fast', description: 'Toggle fast mode (Opus only)' },
+  { command: '/help', description: 'Show help' },
+  { command: '/clear', description: 'Clear conversation history' },
+  { command: '/memory', description: 'Edit Claude memory files' },
+  { command: '/mcp', description: 'Manage MCP servers' },
+  { command: '/tasks', description: 'List and manage background tasks' },
   { command: '/exit', description: 'Exit the REPL' },
 ];
 
 // Commands to hide from autocomplete (managed by the web UI server)
 const HIDDEN_COMMANDS = new Set(['/exit']);
 
-// Sub-options for /model and /effort only
+// Sub-options for commands with known arguments
 const MODEL_OPTIONS = [
   { value: 'opus', label: 'Opus 4.6 (1M context)' },
   { value: 'sonnet', label: 'Sonnet 4.6' },
@@ -38,6 +46,14 @@ const EFFORT_OPTIONS = [
   { value: 'medium', label: 'Medium effort' },
   { value: 'high', label: 'High effort' },
   { value: 'max', label: 'Max effort' },
+];
+
+const PERMISSION_MODE_OPTIONS = [
+  { value: 'default', label: 'Default — ask for permissions' },
+  { value: 'plan', label: 'Plan mode — plan before acting' },
+  { value: 'auto', label: 'Auto — auto-approve safe actions' },
+  { value: 'acceptEdits', label: 'Accept edits — auto-approve file edits' },
+  { value: 'bypassPermissions', label: 'Bypass — skip all permission checks' },
 ];
 
 // Commands that only affect Claude TUI, shown with a note
@@ -107,6 +123,7 @@ export default function InputBox() {
       let options: Array<{ value: string; label: string }> | null = null;
       if (cmd === '/model') options = MODEL_OPTIONS;
       else if (cmd === '/effort') options = EFFORT_OPTIONS;
+      else if (cmd === '/permission-mode') options = PERMISSION_MODE_OPTIONS;
 
       if (options) {
         const matches = options.filter(o =>

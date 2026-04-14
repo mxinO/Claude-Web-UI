@@ -282,23 +282,41 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
-  // Current model and CWD (parsed from tmux pane header)
-  router.get('/current-model', (_req, res) => {
+  // Current model, CWD, permission mode, and effort (parsed from tmux pane)
+  router.get('/current-status', (_req, res) => {
     try {
-      const capture = execSync(
+      // Capture header (top) and status bar (bottom)
+      const headerCapture = execSync(
         `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S 0 -E 5`,
         { encoding: 'utf-8', timeout: 3000 }
       );
-      // Header line looks like: "Opus 4.6 (1M context) with medium effort"
-      const modelMatch = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
-      // CWD line looks like: "  /home/mxin"
-      const cwdMatch = capture.match(/^\s+(\/\S+)\s*$/m);
+      const statusCapture = execSync(
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
+        { encoding: 'utf-8', timeout: 3000 }
+      );
+
+      // Model: "Opus 4.6 (1M context)"
+      const modelMatch = headerCapture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
+      // CWD: "  /home/mxin"
+      const cwdMatch = headerCapture.match(/^\s+(\/\S+)\s*$/m);
+      // Effort: "medium effort" or "with high effort"
+      const effortMatch = headerCapture.match(/with\s+(low|medium|high|max)\s+effort/i);
+      // Permission mode from status bar: "bypass permissions on" or "plan mode on" or "default" etc.
+      let permissionMode: string | null = null;
+      if (statusCapture.includes('plan mode')) permissionMode = 'plan';
+      else if (statusCapture.includes('bypass permissions')) permissionMode = 'bypass';
+      else if (statusCapture.includes('auto-accept')) permissionMode = 'auto';
+      else if (statusCapture.includes('accept edits')) permissionMode = 'acceptEdits';
+      else if (statusCapture.includes('default')) permissionMode = 'default';
+
       res.json({
         model: modelMatch ? modelMatch[0] : null,
         cwd: cwdMatch ? cwdMatch[1] : null,
+        effort: effortMatch ? effortMatch[1].toLowerCase() : null,
+        permissionMode,
       });
     } catch {
-      res.json({ model: null, cwd: null });
+      res.json({ model: null, cwd: null, effort: null, permissionMode: null });
     }
   });
 
