@@ -63,9 +63,9 @@ export default function SessionPicker({ visible, onClose, onSelect, cwd }: Sessi
       {/* Backdrop to close on outside click */}
       <div
         style={{ position: 'fixed', inset: 0, zIndex: 99 }}
-        onClick={onClose}
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
-      <div className="session-picker">
+      <div className="session-picker" onClick={(e) => e.stopPropagation()}>
         {loading && (
           <div style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: 12 }}>
             Loading sessions...
