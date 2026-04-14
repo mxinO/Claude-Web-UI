@@ -68,7 +68,7 @@ server.listen(PORT, HOST, () => {
     console.log(`tmux session "${TMUX_SESSION}" already running — attaching hooks to it`);
   } else {
     try {
-      startClaudeSession('', CLAUDE_CWD);
+      startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD);
       console.log(`Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
     } catch (err) {
       console.error('Failed to start Claude tmux session:', err);
@@ -100,20 +100,16 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 // --- Hook configuration ---
-function setupHooks() {
-  const settingsPath = path.join(process.env.HOME || '~', '.claude', 'settings.json');
-  const settingsDir = path.dirname(settingsPath);
-  fs.mkdirSync(settingsDir, { recursive: true });
+// Writes hooks to a LOCAL settings file (not ~/.claude/settings.json)
+// so only our managed Claude subprocess uses them.
+const HOOKS_SETTINGS_PATH = path.join(__dirname, '..', 'data', 'hooks-settings.json');
 
-  let settings: Record<string, unknown> = {};
-  try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { /* file doesn't exist or invalid JSON — start fresh */ }
+function setupHooks() {
+  fs.mkdirSync(path.dirname(HOOKS_SETTINGS_PATH), { recursive: true });
 
   const serverUrl = `http://localhost:${PORT}`;
   const permissionScript = path.join(__dirname, '..', 'scripts', 'permission-hook.sh');
 
-  // Make permission script executable
   try { fs.chmodSync(permissionScript, 0o755); } catch { /* ignore */ }
 
   const httpHook = (endpoint: string) => [{
@@ -121,36 +117,53 @@ function setupHooks() {
     hooks: [{ type: 'http', url: `${serverUrl}/hooks/${endpoint}` }],
   }];
 
-  const hooks: Record<string, unknown[]> = {
-    SessionStart: [{
-      matcher: '',
-      hooks: [{
-        type: 'command',
-        command: `curl -sf -X POST "${serverUrl}/hooks/session-start" -H "Content-Type: application/json" -d @- || true`,
+  const settings = {
+    hooks: {
+      SessionStart: [{
+        matcher: '',
+        hooks: [{
+          type: 'command',
+          command: `curl -sf -X POST "${serverUrl}/hooks/session-start" -H "Content-Type: application/json" -d @- || true`,
+        }],
       }],
-    }],
-    SessionEnd:        httpHook('session-end'),
-    UserPromptSubmit:  httpHook('user-prompt'),
-    Stop:              httpHook('stop'),
-    PreToolUse:        httpHook('pre-tool-use'),
-    PostToolUse:       httpHook('post-tool-use'),
-    SubagentStart:     httpHook('subagent-start'),
-    SubagentStop:      httpHook('subagent-stop'),
-    TaskCreated:       httpHook('task-created'),
-    TaskCompleted:     httpHook('task-completed'),
-    Notification:      httpHook('notification'),
-    PermissionRequest: [{
-      matcher: '',
-      hooks: [{
-        type: 'command',
-        command: permissionScript,
-        timeout: 600,
+      SessionEnd:        httpHook('session-end'),
+      UserPromptSubmit:  httpHook('user-prompt'),
+      Stop:              httpHook('stop'),
+      PreToolUse:        httpHook('pre-tool-use'),
+      PostToolUse:       httpHook('post-tool-use'),
+      SubagentStart:     httpHook('subagent-start'),
+      SubagentStop:      httpHook('subagent-stop'),
+      TaskCreated:       httpHook('task-created'),
+      TaskCompleted:     httpHook('task-completed'),
+      Notification:      httpHook('notification'),
+      PermissionRequest: [{
+        matcher: '',
+        hooks: [{
+          type: 'command',
+          command: permissionScript,
+          timeout: 600,
+        }],
       }],
-    }],
+    },
   };
 
-  settings.hooks = hooks;
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  fs.writeFileSync(HOOKS_SETTINGS_PATH, JSON.stringify(settings, null, 2));
+
+  // Clean up any hooks we previously wrote to global settings
+  cleanupGlobalHooks();
+}
+
+/** Remove hooks from ~/.claude/settings.json if we put them there before */
+function cleanupGlobalHooks() {
+  const globalPath = path.join(process.env.HOME || '~', '.claude', 'settings.json');
+  try {
+    const settings = JSON.parse(fs.readFileSync(globalPath, 'utf-8'));
+    if (settings.hooks) {
+      delete settings.hooks;
+      fs.writeFileSync(globalPath, JSON.stringify(settings, null, 2));
+      console.log('Cleaned up hooks from global ~/.claude/settings.json');
+    }
+  } catch { /* no global settings or can't read — fine */ }
 }
 
 function getLocalIP(): string {
