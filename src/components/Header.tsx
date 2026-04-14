@@ -31,19 +31,12 @@ export default function Header({ session, connected }: HeaderProps) {
 
   const displayModel = currentModel || session?.model;
 
-  async function handleSessionSelect(sessionId: string) {
+  function handleSessionSelect(sessionId: string) {
     setPickerVisible(false);
-    try {
-      await fetch('/api/send-command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: `/resume ${sessionId}` }),
-      });
-      // Notify app to refresh
-      window.dispatchEvent(new CustomEvent('claude-command-executed', {
-        detail: { command: `/resume ${sessionId}` }
-      }));
-    } catch { /* ignore */ }
+    // Insert "/resume <id>" into the input box — let user review and press Enter
+    window.dispatchEvent(new CustomEvent('insert-input-text', {
+      detail: { text: `/resume ${sessionId}` }
+    }));
   }
 
   return (

@@ -84,6 +84,19 @@ export default function InputBox() {
   // Track @ position for file autocomplete
   const atPosRef = useRef(-1);
 
+  // Listen for external text insertion (e.g. session picker inserts /resume <id>)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === 'string') {
+        setValue(text);
+        textareaRef.current?.focus();
+      }
+    };
+    window.addEventListener('insert-input-text', handler);
+    return () => window.removeEventListener('insert-input-text', handler);
+  }, []);
+
   // Auto-resize textarea height
   useEffect(() => {
     const el = textareaRef.current;
