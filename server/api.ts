@@ -13,10 +13,22 @@ import {
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
 import { execSync } from 'child_process';
-import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
+import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } from './hooks.js';
 
+
+function isPathSafe(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  // Block obvious path traversal
+  if (filePath.includes('..')) return false;
+  // Must be an absolute path
+  if (!resolved.startsWith('/')) return false;
+  // Block sensitive system paths
+  const blocked = ['/etc/shadow', '/etc/passwd', '/proc', '/sys'];
+  if (blocked.some(b => resolved.startsWith(b))) return false;
+  return true;
+}
 
 export function registerApiRoutes(app: Express): void {
   const router = Router();
@@ -122,9 +134,6 @@ export function registerApiRoutes(app: Express): void {
 
   // POST /api/send-command — send a slash command, wait, capture TUI response
   // For slash commands that don't trigger hooks (e.g. /model, /compact, /clear)
-  const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
-  const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
-
   router.post('/send-command', async (req, res) => {
     const { text } = req.body as { text?: string };
     if (typeof text !== 'string') {
@@ -269,6 +278,10 @@ export function registerApiRoutes(app: Express): void {
       res.status(400).json({ error: 'path required' });
       return;
     }
+    if (!isPathSafe(filePath)) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
     try {
       const stat = fs.statSync(filePath);
       if (stat.size > MAX_FILE_SIZE) {
@@ -380,6 +393,10 @@ export function registerApiRoutes(app: Express): void {
   // List directory contents (1 level) for @file autocomplete and file explorer
   router.get('/ls', (req, res) => {
     const dirPath = (req.query.path as string) || process.cwd();
+    if (!isPathSafe(dirPath)) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
     try {
       const entries = fs.readdirSync(dirPath, { withFileTypes: true });
       const items = entries
@@ -404,6 +421,10 @@ export function registerApiRoutes(app: Express): void {
   router.get('/recent-files', (req, res) => {
     const dirPath = (req.query.path as string) || process.cwd();
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+    if (!isPathSafe(dirPath)) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
     try {
       const files = getRecentFiles(dirPath, limit);
       res.json({ path: dirPath, files });
@@ -594,6 +615,7 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
       }
 
       if (lastUserText) {
+        // Intentional: show the end of the last message (where the user left off)
         preview = lastUserText.slice(-80);
       }
     } catch { /* skip unreadable */ }

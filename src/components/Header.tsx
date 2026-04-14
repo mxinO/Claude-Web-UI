@@ -19,7 +19,8 @@ export default function Header({ session, connected }: HeaderProps) {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+    try { return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark'; }
+    catch { return 'dark'; }
   });
 
   // Apply theme to document

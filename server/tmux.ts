@@ -1,7 +1,7 @@
 import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 
-const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
-const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
+export const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
+export const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
 const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout: 5000 };
 
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -26,6 +26,10 @@ export function getSessionStatus(): { alive: boolean; session: string } {
 }
 
 export function startClaudeSession(args: string = '', cwd?: string): void {
+  // Validate args to prevent injection
+  if (args && !/^[\w\s\-\.\/]+$/.test(args)) {
+    throw new Error('Invalid characters in args');
+  }
   const dir = cwd || process.cwd();
   const cmd = `tmux new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "claude ${args}"`;
   execSync(cmd, execOpts);

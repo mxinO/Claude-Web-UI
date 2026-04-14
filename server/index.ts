@@ -22,7 +22,7 @@ const CLAUDE_CWD = process.argv.find((a, i) => i > 1 && !a.startsWith('-')) || p
 // --- Database ---
 // Start with a temporary DB; SessionStart hook will switch to the per-session DB
 const tmpDbPath = path.join(__dirname, '..', 'data', 'claude-web-ui-tmp.db');
-import('fs').then(fs => fs.mkdirSync(path.dirname(tmpDbPath), { recursive: true }));
+fs.mkdirSync(path.dirname(tmpDbPath), { recursive: true });
 initDb(tmpDbPath);
 
 // --- Express + WebSocket ---

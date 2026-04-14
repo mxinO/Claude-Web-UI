@@ -39,15 +39,13 @@ cleanup_previous() {
 cleanup_previous
 
 # Install deps if needed or if package.json changed since last install
-if [ ! -d node_modules ] || [ package.json -nt node_modules/.package-lock.json 2>/dev/null ]; then
+if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ] || [ package.json -nt node_modules/.package-lock.json ]; then
   echo "Installing dependencies..."
   npm install --silent
 fi
 
 # Build if needed or if source changed since last build
-NEWEST_SRC=$(find src server -name '*.ts' -o -name '*.tsx' -o -name '*.css' 2>/dev/null | xargs stat -c %Y 2>/dev/null | sort -rn | head -1)
-BUILT_AT=$(stat -c %Y dist/client/index.html 2>/dev/null || echo 0)
-if [ ! -d dist/client ] || [ "${NEWEST_SRC:-0}" -gt "$BUILT_AT" ]; then
+if [ ! -d dist/client ] || [ -n "$(find src server \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) -newer dist/client/index.html 2>/dev/null | head -1)" ]; then
   echo "Building frontend..."
   npx vite build --silent
 fi
@@ -55,6 +53,7 @@ fi
 # Check prerequisites
 command -v tmux >/dev/null 2>&1 || { echo "Error: tmux is required. Install it with: apt install tmux"; exit 1; }
 command -v claude >/dev/null 2>&1 || { echo "Error: Claude Code CLI is required. Install from: https://claude.ai/code"; exit 1; }
+command -v jq >/dev/null 2>&1 || echo "Warning: jq is recommended for permission handling. Install with: apt install jq"
 
 # Cleanup on exit (Ctrl+C, SIGTERM, or normal exit)
 cleanup() {
