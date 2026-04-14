@@ -156,6 +156,16 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
+  // POST /api/interrupt — send Escape to interrupt current operation
+  router.post('/interrupt', (_req, res) => {
+    try {
+      execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // POST /api/send-command — send a slash command, wait, capture TUI response
   // For slash commands that don't trigger hooks (e.g. /model, /compact, /clear)
   router.post('/send-command', async (req, res) => {

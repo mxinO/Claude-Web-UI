@@ -97,6 +97,9 @@ export default function App() {
     return last.event_type === 'user_message';
   })();
 
+  // Running state: thinking, streaming, or a tool is in progress
+  const isRunning = isThinking || !!streamingText || events.some(e => e.event_type === 'tool_running');
+
   return (
     <div className="app">
       <Header session={session} connected={connected} />
@@ -140,7 +143,7 @@ export default function App() {
         </div>
       </div>
 
-      <InputBox />
+      <InputBox isRunning={isRunning} />
 
       {/* Detail modal for tool calls */}
       {modalEvent && (

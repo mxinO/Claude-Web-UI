@@ -70,7 +70,11 @@ const WEB_UI_NOTES: Record<string, string> = {
 
 type AutocompleteMode = 'none' | 'slash' | 'file';
 
-export default function InputBox() {
+interface InputBoxProps {
+  isRunning?: boolean;
+}
+
+export default function InputBox({ isRunning }: InputBoxProps = {}) {
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
   const historyRef = useRef<string[]>([]);
@@ -480,6 +484,17 @@ export default function InputBox() {
         >
           📁
         </button>
+        {isRunning && (
+          <button
+            className="stop-button"
+            onClick={async () => {
+              try { await fetch('/api/interrupt', { method: 'POST' }); } catch { /* ignore */ }
+            }}
+            title="Stop (interrupt current operation)"
+          >
+            ⏹
+          </button>
+        )}
       </div>
       <FileExplorer
         visible={explorerVisible}

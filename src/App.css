@@ -1251,3 +1251,25 @@ body {
   color: var(--text-primary);
   border-color: var(--text-secondary);
 }
+
+/* ── Stop button ─────────────────────────────────────────────── */
+
+.stop-button {
+  background: var(--red);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  padding: 6px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+}
+
+.stop-button:hover {
+  opacity: 0.85;
+}
