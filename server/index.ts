@@ -117,36 +117,55 @@ function setupHooks() {
     hooks: [{ type: 'http', url: `${serverUrl}/hooks/${endpoint}` }],
   }];
 
-  const settings = {
-    hooks: {
-      SessionStart: [{
-        matcher: '',
-        hooks: [{
-          type: 'command',
-          command: `curl -sf -X POST "${serverUrl}/hooks/session-start" -H "Content-Type: application/json" -d @- || true`,
-        }],
+  // Our hooks for the web UI
+  const ourHooks: Record<string, unknown[]> = {
+    SessionStart: [{
+      matcher: '',
+      hooks: [{
+        type: 'command',
+        command: `curl -sf -X POST "${serverUrl}/hooks/session-start" -H "Content-Type: application/json" -d @- || true`,
       }],
-      SessionEnd:        httpHook('session-end'),
-      UserPromptSubmit:  httpHook('user-prompt'),
-      Stop:              httpHook('stop'),
-      PreToolUse:        httpHook('pre-tool-use'),
-      PostToolUse:       httpHook('post-tool-use'),
-      SubagentStart:     httpHook('subagent-start'),
-      SubagentStop:      httpHook('subagent-stop'),
-      TaskCreated:       httpHook('task-created'),
-      TaskCompleted:     httpHook('task-completed'),
-      Notification:      httpHook('notification'),
-      PermissionRequest: [{
-        matcher: '',
-        hooks: [{
-          type: 'command',
-          command: permissionScript,
-          timeout: 600,
-        }],
+    }],
+    SessionEnd:        httpHook('session-end'),
+    UserPromptSubmit:  httpHook('user-prompt'),
+    Stop:              httpHook('stop'),
+    PreToolUse:        httpHook('pre-tool-use'),
+    PostToolUse:       httpHook('post-tool-use'),
+    SubagentStart:     httpHook('subagent-start'),
+    SubagentStop:      httpHook('subagent-stop'),
+    TaskCreated:       httpHook('task-created'),
+    TaskCompleted:     httpHook('task-completed'),
+    Notification:      httpHook('notification'),
+    PermissionRequest: [{
+      matcher: '',
+      hooks: [{
+        type: 'command',
+        command: permissionScript,
+        timeout: 600,
       }],
-    },
+    }],
   };
 
+  // Read user's global hooks and merge — our hooks are appended, user hooks preserved
+  const globalSettingsPath = path.join(process.env.HOME || '~', '.claude', 'settings.json');
+  let userHooks: Record<string, unknown[]> = {};
+  try {
+    const globalSettings = JSON.parse(fs.readFileSync(globalSettingsPath, 'utf-8'));
+    if (globalSettings.hooks) {
+      userHooks = globalSettings.hooks;
+    }
+  } catch { /* no global settings */ }
+
+  // Merge: for each event, concatenate user hooks + our hooks
+  const mergedHooks: Record<string, unknown[]> = {};
+  const allEvents = new Set([...Object.keys(ourHooks), ...Object.keys(userHooks)]);
+  for (const event of allEvents) {
+    const user = Array.isArray(userHooks[event]) ? userHooks[event] : [];
+    const ours = Array.isArray(ourHooks[event]) ? ourHooks[event] : [];
+    mergedHooks[event] = [...user, ...ours];
+  }
+
+  const settings = { hooks: mergedHooks };
   fs.writeFileSync(HOOKS_SETTINGS_PATH, JSON.stringify(settings, null, 2));
 }
 
