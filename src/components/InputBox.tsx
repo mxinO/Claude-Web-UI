@@ -230,6 +230,30 @@ export default function InputBox() {
     setAcIndex(0);
   }, []);
 
+  /** Send a slash command via the special endpoint that captures TUI response */
+  const sendSlashCommand = useCallback(async (command: string) => {
+    setError('');
+    setValue('');
+    closeAutocomplete();
+    try {
+      const res = await fetch('/api/send-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: command }),
+      });
+      const data = await res.json();
+      if (data.response) {
+        setError(`${command}: ${data.response}`);
+      } else if (!res.ok) {
+        setError(data.error || `Failed: ${command}`);
+      }
+    } catch (err) {
+      setError(`Failed: ${err}`);
+    }
+  }, [closeAutocomplete]);
+  const sendSlashRef = useRef(sendSlashCommand);
+  sendSlashRef.current = sendSlashCommand;
+
   const selectAutocompleteItem = useCallback(
     (index: number) => {
       const item = acItems[index];
@@ -239,18 +263,13 @@ export default function InputBox() {
         if (SUBMENU_COMMANDS.has(item.label)) {
           setValue(item.label + ' ');
         } else {
-          sendRef.current?.(item.label);
-          setValue('');
-          closeAutocomplete();
+          // Slash commands use special endpoint to capture TUI response
+          sendSlashRef.current(item.label);
         }
       } else if (acMode === 'model') {
-        sendRef.current?.('/model ' + item.label);
-        setValue('');
-        closeAutocomplete();
+        sendSlashRef.current('/model ' + item.label);
       } else if (acMode === 'effort') {
-        sendRef.current?.('/effort ' + item.label);
-        setValue('');
-        closeAutocomplete();
+        sendSlashRef.current('/effort ' + item.label);
       } else if (acMode === 'file') {
         const atIdx = atPosRef.current;
         const before = value.slice(0, atIdx);

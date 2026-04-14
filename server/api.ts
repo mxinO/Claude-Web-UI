@@ -12,6 +12,7 @@ import {
   getDb,
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
+import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
 import { broadcastPermissionDecision } from './websocket.js';
 import { getCachedCommands } from './commands.js';
@@ -113,6 +114,44 @@ export function registerApiRoutes(app: Express): void {
     try {
       sendInput(text);
       res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // POST /api/send-command — send a slash command, wait, capture TUI response
+  // For slash commands that don't trigger hooks (e.g. /model, /compact, /clear)
+  const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
+  const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
+
+  router.post('/send-command', async (req, res) => {
+    const { text } = req.body as { text?: string };
+    if (typeof text !== 'string') {
+      res.status(400).json({ error: 'text (string) is required' });
+      return;
+    }
+    try {
+      // Capture pane BEFORE sending to know what's already there
+      const before = execSync(
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -5`,
+        { encoding: 'utf-8', timeout: 3000 }
+      );
+
+      sendInput(text);
+
+      // Wait for the command to be processed
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Capture pane AFTER to find the response
+      const after = execSync(
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -10`,
+        { encoding: 'utf-8', timeout: 3000 }
+      );
+
+      // Extract the response: find lines after the command that weren't in "before"
+      const response = extractCommandResponse(after, text);
+
+      res.json({ ok: true, command: text, response });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -237,6 +276,35 @@ export function registerApiRoutes(app: Express): void {
   });
 
   app.use('/api', router);
+}
+
+/** Extract the response to a slash command from tmux pane capture */
+function extractCommandResponse(capture: string, command: string): string {
+  const lines = capture.split('\n');
+  // Find the line with our command (❯ /command)
+  let cmdIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].trim().startsWith('❯') && lines[i].includes(command)) {
+      cmdIdx = i;
+      break;
+    }
+  }
+  if (cmdIdx === -1) return '';
+
+  // Collect response lines after the command until separator or next prompt
+  const responseLines: string[] = [];
+  for (let i = cmdIdx + 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.match(/^[─━]{5,}$/)) break;
+    if (trimmed.startsWith('❯')) break;
+    responseLines.push(lines[i]);
+  }
+
+  // Clean up: strip ⎿ prefix (Claude's response indicator for commands)
+  return responseLines
+    .map(l => l.replace(/^\s*⎿\s*/, '').trimEnd())
+    .join('\n')
+    .trim();
 }
 
 /** Scan workdir (up to 2 levels) for recently modified files, sorted by mtime desc */
