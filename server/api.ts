@@ -282,10 +282,10 @@ export function registerApiRoutes(app: Express): void {
     try {
       // Kill current Claude
       stopClaudeSession();
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Reset managed session so hooks attach to the new one
-      const { setManagedSessionId, setWaitingForSessionStart } = await import('./hooks.js');
+      const { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } = await import('./hooks.js');
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
 
@@ -293,7 +293,14 @@ export function registerApiRoutes(app: Express): void {
       const targetCwd = cwd || process.cwd();
       startClaudeSession(`--resume ${sessionId}`, targetCwd);
 
-      res.json({ ok: true, sessionId, cwd: targetCwd });
+      // Wait until Claude is ready (SessionStart hook fires and sets managedSessionId)
+      // Poll for up to 20 seconds
+      for (let i = 0; i < 40; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (getManagedSessionId()) break;
+      }
+
+      res.json({ ok: true, sessionId, cwd: targetCwd, ready: !!getManagedSessionId() });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
