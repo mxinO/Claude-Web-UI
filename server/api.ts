@@ -156,6 +156,23 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
+  // DELETE /api/events/last-user-message — remove the most recent user_message (used on cancel)
+  router.delete('/events/last-user-message', (_req, res) => {
+    try {
+      const managedId = getManagedSessionId();
+      if (managedId) {
+        getDb().prepare(
+          `DELETE FROM events WHERE id = (
+            SELECT id FROM events WHERE session_id = ? AND event_type = 'user_message' ORDER BY id DESC LIMIT 1
+          )`
+        ).run(managedId);
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // POST /api/interrupt — send Escape to interrupt current operation
   router.post('/interrupt', async (_req, res) => {
     try {
@@ -164,10 +181,38 @@ export function registerApiRoutes(app: Express): void {
       stopStreaming();
       // Send Escape to tmux to interrupt
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
-      // Wait briefly then clear Claude's input line (it may put the cancelled prompt back)
       await new Promise(resolve => setTimeout(resolve, 500));
-      execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
-      res.json({ ok: true });
+
+      // Check the prompt area (bottom of visible pane) for restored text
+      // The prompt is between two separator lines: ────\n❯ text\n────
+      let restoredText = '';
+      try {
+        const bottom = execSync(
+          `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -4`,
+          { encoding: 'utf-8', timeout: 3000 }
+        );
+        const lines = bottom.split('\n');
+        for (const line of lines) {
+          const m = line.match(/^❯\s+(.*\S)/);
+          if (m) { restoredText = m[1]; break; }
+        }
+      } catch { /* ignore */ }
+
+      // Clear Claude's input and remove orphaned event from DB
+      if (restoredText) {
+        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
+        // Delete the orphaned user_message from the DB
+        const managedId = getManagedSessionId();
+        if (managedId) {
+          getDb().prepare(
+            `DELETE FROM events WHERE id = (
+              SELECT id FROM events WHERE session_id = ? AND event_type = 'user_message' ORDER BY id DESC LIMIT 1
+            )`
+          ).run(managedId);
+        }
+      }
+
+      res.json({ ok: true, restoredText: restoredText || null });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

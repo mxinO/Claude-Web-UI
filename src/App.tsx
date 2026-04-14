@@ -19,7 +19,7 @@ export default function App() {
   const [streamingExpanded, setStreamingExpanded] = useState(false);
   const [cancelledText, setCancelledText] = useState<string | null>(null);
   const cancelledRef = useRef(false);
-  const { events, addEvent, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
+  const { events, addEvent, removeLastUserMessage, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onStreaming = useCallback((text: string) => {
     if (cancelledRef.current) return; // ignore streaming after cancel
@@ -64,20 +64,23 @@ export default function App() {
 
   // Listen for interrupt (stop button)
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
       cancelledRef.current = true;
+      const restoredText = (e as CustomEvent).detail?.restoredText;
+
       if (streamingText) {
         // Late cancel — had streaming output, show cancelled card
         setCancelledText(streamingText);
-      } else {
-        // Early cancel — no output yet, Claude restores prompt, so we do too
-        const lastUserMsg = [...events].reverse().find(ev => ev.event_type === 'user_message');
-        if (lastUserMsg?.message_text) {
-          window.dispatchEvent(new CustomEvent('insert-input-text', {
-            detail: { text: lastUserMsg.message_text }
-          }));
-        }
       }
+
+      if (restoredText) {
+        // Claude restored the prompt — put it back in our input and remove from DB
+        window.dispatchEvent(new CustomEvent('insert-input-text', {
+          detail: { text: restoredText }
+        }));
+        removeLastUserMessage();
+      }
+
       setStreamingText(null);
       setStreamingExpanded(false);
     };

@@ -104,9 +104,21 @@ export function useEventStore(): UseEventStoreReturn {
     }
   }, [session, events]);
 
+  const removeLastUserMessage = useCallback(() => {
+    setEvents(prev => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].event_type === 'user_message') {
+          return [...prev.slice(0, i), ...prev.slice(i + 1)];
+        }
+      }
+      return prev;
+    });
+  }, []);
+
   return {
     events,
     addEvent,
+    removeLastUserMessage,
     session,
     setSession,
     loadOlderEvents,
