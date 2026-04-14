@@ -148,57 +148,6 @@ function setupHooks() {
   };
 
   fs.writeFileSync(HOOKS_SETTINGS_PATH, JSON.stringify(settings, null, 2));
-
-  // One-time migration: clean up hooks from global settings if we put them there before.
-  // After cleanup, write a marker so we don't run this again.
-  const migrationMarker = path.join(path.dirname(HOOKS_SETTINGS_PATH), '.hooks-migrated');
-  if (!fs.existsSync(migrationMarker)) {
-    cleanupGlobalHooks();
-    fs.writeFileSync(migrationMarker, new Date().toISOString());
-  }
-}
-
-/** Remove only OUR hooks from ~/.claude/settings.json, keep user-installed ones.
- *  We identify our hooks by checking if they point to our server (localhost:PORT). */
-function cleanupGlobalHooks() {
-  const globalPath = path.join(process.env.HOME || '~', '.claude', 'settings.json');
-  try {
-    const settings = JSON.parse(fs.readFileSync(globalPath, 'utf-8'));
-    if (!settings.hooks) return;
-
-    const ourUrl = `localhost:${PORT}`;
-    let changed = false;
-
-    for (const [eventName, hookGroups] of Object.entries(settings.hooks)) {
-      if (!Array.isArray(hookGroups)) continue;
-      const filtered = (hookGroups as Array<{ hooks?: Array<{ url?: string; command?: string }> }>).filter(group => {
-        if (!group.hooks) return true;
-        // Keep the group if ANY hook in it doesn't point to our server
-        return group.hooks.some(h =>
-          !(h.url?.includes(ourUrl)) && !(h.command?.includes(ourUrl))
-        );
-      });
-      if (filtered.length !== (hookGroups as unknown[]).length) {
-        changed = true;
-        if (filtered.length === 0) {
-          delete settings.hooks[eventName];
-        } else {
-          settings.hooks[eventName] = filtered;
-        }
-      }
-    }
-
-    // If all hooks were ours and are now removed, delete the hooks key
-    if (Object.keys(settings.hooks).length === 0) {
-      delete settings.hooks;
-      changed = true;
-    }
-
-    if (changed) {
-      fs.writeFileSync(globalPath, JSON.stringify(settings, null, 2));
-      console.log('Cleaned up our hooks from global ~/.claude/settings.json');
-    }
-  } catch { /* no global settings or can't read — fine */ }
 }
 
 function getLocalIP(): string {
