@@ -298,9 +298,9 @@ export function registerApiRoutes(app: Express): void {
   // Current model, CWD, permission mode, and effort (parsed from tmux pane)
   router.get('/current-status', (_req, res) => {
     try {
-      // Capture header (top) and status bar (bottom)
+      // Capture a large range — header may be scrolled far up
       const headerCapture = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S 0 -E 5`,
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 5`,
         { encoding: 'utf-8', timeout: 3000 }
       );
       const statusCapture = execSync(
@@ -310,8 +310,8 @@ export function registerApiRoutes(app: Express): void {
 
       // Model: "Opus 4.6 (1M context)"
       const modelMatch = headerCapture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
-      // CWD: "  /home/mxin"
-      const cwdMatch = headerCapture.match(/^\s+(\/\S+)\s*$/m);
+      // CWD line looks like: "  ▘▘ ▝▝    /home/mxin"
+      const cwdMatch = headerCapture.match(/^\s+.*\s+(\/\S+)\s*$/m);
       // Effort: "medium effort" or "with high effort"
       const effortMatch = headerCapture.match(/with\s+(low|medium|high|max)\s+effort/i);
       // Permission mode from status bar: "bypass permissions on" or "plan mode on" or "default" etc.
