@@ -445,18 +445,26 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
             model = entry.message.model;
           }
 
-          // Track last user message for preview
+          // Track last user message for preview (skip system noise)
           if (entry.type === 'user') {
-            // Try to get text from message content
             const msg = entry.message;
+            let text: string | null = null;
             if (msg && Array.isArray(msg.content)) {
               for (const part of msg.content) {
                 if (part.type === 'text' && typeof part.text === 'string') {
-                  lastUserText = part.text.trim();
+                  text = part.text.trim();
                 }
               }
             } else if (typeof msg?.content === 'string') {
-              lastUserText = msg.content.trim();
+              text = msg.content.trim();
+            }
+            // Skip system noise: local-command tags, empty, very short
+            if (text && text.length > 2
+                && !text.startsWith('<local-command')
+                && !text.startsWith('<command-')
+                && !text.includes('Bye!')
+                && !text.startsWith('<system-reminder')) {
+              lastUserText = text;
             }
           }
         } catch { /* skip bad lines */ }
