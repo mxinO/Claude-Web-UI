@@ -28,6 +28,10 @@ const FALLBACK_COMMANDS = [
   { command: '/memory', description: 'Edit Claude memory files' },
   { command: '/mcp', description: 'Manage MCP servers' },
   { command: '/tasks', description: 'List and manage background tasks' },
+  { command: '/loop', description: 'Run a prompt or command on a recurring interval' },
+  { command: '/batch', description: 'Plan and execute a large-scale change in parallel' },
+  { command: '/agents', description: 'Manage agent configurations' },
+  { command: '/rename', description: 'Rename the current conversation' },
   { command: '/exit', description: 'Exit the REPL' },
 ];
 
