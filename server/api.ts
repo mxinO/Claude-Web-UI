@@ -191,12 +191,14 @@ export function registerApiRoutes(app: Express): void {
         } catch { /* tmux not ready */ }
       }
 
-      // Dismiss the popup
-      try {
-        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
-      } catch { /* ignore */ }
+      // Dismiss the popup only if it was actually shown
+      if (lastCapture.includes('Esc to dismiss')) {
+        try {
+          execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+        } catch { /* ignore */ }
+      }
 
-      res.json({ ok: true, question, response });
+      res.json({ ok: !!response, question, response, timedOut: !response });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
