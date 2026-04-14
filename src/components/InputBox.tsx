@@ -88,8 +88,8 @@ export default function InputBox() {
 
   const updateAutocomplete = useCallback(
     async (text: string) => {
-      // Slash commands: input starts with /
-      if (text.startsWith('/')) {
+      // Slash commands: input starts with / and no space yet (still typing the command name)
+      if (text.startsWith('/') && !text.includes(' ')) {
         const query = text.toLowerCase();
         const commands = await getSlashCommands();
         const matches = commands.filter((c) =>
