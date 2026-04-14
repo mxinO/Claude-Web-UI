@@ -115,8 +115,8 @@ export default function App() {
   const handleCloseDetail = useCallback(() => setModalEvent(null), []);
   const handleReconnectSelect = useCallback((event: TimelineEvent) => setModalEvent(event), []);
 
-  // Thinking state: last event is user message AND no streaming yet
-  const isThinking = events.length > 0 && !streamingText && (() => {
+  // Thinking state: last event is user message AND no streaming yet AND not cancelled
+  const isThinking = events.length > 0 && !streamingText && !cancelledRef.current && (() => {
     const last = events[events.length - 1];
     return last.event_type === 'user_message';
   })();
@@ -192,11 +192,11 @@ export default function App() {
 
       {/* Streaming expanded popup */}
       {streamingExpanded && (streamingText || cancelledText) && (
-        <div className="modal-overlay" onClick={() => { setStreamingExpanded(false); setCancelledText(null); }}>
+        <div className="modal-overlay" onClick={() => setStreamingExpanded(false)}>
           <div className="modal-container" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{cancelledText && !streamingText ? 'Cancelled (partial response)' : 'Responding...'}</span>
-              <button className="modal-close" onClick={() => { setStreamingExpanded(false); setCancelledText(null); }}>×</button>
+              <button className="modal-close" onClick={() => setStreamingExpanded(false)}>×</button>
             </div>
             <div className="modal-body">
               <pre className="streaming-expanded-text">{streamingText || cancelledText}</pre>
