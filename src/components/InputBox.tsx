@@ -23,6 +23,28 @@ const FALLBACK_COMMANDS = [
 // Commands to hide from autocomplete (managed by the web UI server)
 const HIDDEN_COMMANDS = new Set(['/exit']);
 
+// Known sub-options for commands that need arguments
+// Not perfectly dynamic, but covers the common cases
+const COMMAND_SUBOPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  '/model': [
+    { value: 'opus', label: 'Opus 4.6 (1M context)' },
+    { value: 'sonnet', label: 'Sonnet 4.6' },
+    { value: 'haiku', label: 'Haiku 4.5' },
+  ],
+  '/effort': [
+    { value: 'low', label: 'Low effort' },
+    { value: 'medium', label: 'Medium effort' },
+    { value: 'high', label: 'High effort' },
+    { value: 'max', label: 'Max effort' },
+  ],
+  '/permission-mode': [
+    { value: 'default', label: 'Default' },
+    { value: 'auto', label: 'Auto-approve' },
+    { value: 'plan', label: 'Plan mode' },
+    { value: 'bypassPermissions', label: 'Bypass all permissions' },
+  ],
+};
+
 // Commands that only affect Claude TUI, shown with a note
 const WEB_UI_NOTES: Record<string, string> = {
   '/clear': '(clears Claude context only, not web UI)',
@@ -88,6 +110,28 @@ export default function InputBox() {
 
   const updateAutocomplete = useCallback(
     async (text: string) => {
+      // Sub-options: "/model ", "/effort " etc — show argument suggestions
+      if (text.startsWith('/') && text.includes(' ')) {
+        const spaceIdx = text.indexOf(' ');
+        const cmd = text.slice(0, spaceIdx);
+        const arg = text.slice(spaceIdx + 1).toLowerCase();
+        const options = COMMAND_SUBOPTIONS[cmd];
+        if (options) {
+          const matches = options.filter(o =>
+            o.value.toLowerCase().startsWith(arg) || o.label.toLowerCase().includes(arg)
+          );
+          if (matches.length > 0) {
+            setAcMode('slash');
+            setAcItems(matches.map(o => ({ label: o.value, detail: o.label })));
+            setAcIndex(0);
+            return;
+          }
+        }
+        // No sub-options for this command — close dropdown
+        closeAutocomplete();
+        return;
+      }
+
       // Slash commands: input starts with / and no space yet (still typing the command name)
       if (text.startsWith('/') && !text.includes(' ')) {
         const query = text.toLowerCase();
@@ -223,10 +267,16 @@ export default function InputBox() {
       if (!item) return;
 
       if (acMode === 'slash') {
-        // Insert the command into the input with a trailing space
-        // User can then type arguments (e.g. "/model opus") and press Enter to send
-        setValue(item.label + ' ');
-        closeAutocomplete();
+        // Check if we're in sub-option mode (value has a space = already typed the command)
+        if (value.includes(' ')) {
+          // Sub-option selected: compose full command and send
+          const cmd = value.slice(0, value.indexOf(' '));
+          sendSlashRef.current(`${cmd} ${item.label}`);
+        } else {
+          // Command selected: insert with trailing space for argument typing
+          setValue(item.label + ' ');
+          closeAutocomplete();
+        }
       } else if (acMode === 'file') {
         const atIdx = atPosRef.current;
         const before = value.slice(0, atIdx);
