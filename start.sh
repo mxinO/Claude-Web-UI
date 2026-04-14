@@ -61,6 +61,8 @@ cleanup() {
   echo "Shutting down..."
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
   rm -f "$PID_FILE"
+  # Restore terminal settings (tmux/Claude can leave them broken)
+  stty sane 2>/dev/null || true
 }
 trap cleanup EXIT
 
