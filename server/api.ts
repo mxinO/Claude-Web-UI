@@ -256,9 +256,11 @@ export function registerApiRoutes(app: Express): void {
   });
 
   // GET /api/claude-sessions — list recent Claude Code JSONL sessions
-  router.get('/claude-sessions', (_req, res) => {
+  // Optional ?cwd= to filter to a specific project directory
+  router.get('/claude-sessions', (req, res) => {
     try {
-      const sessions = listClaudeSessions();
+      const cwd = (req.query.cwd as string) || undefined;
+      const sessions = listClaudeSessions(cwd);
       res.json(sessions);
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -340,33 +342,41 @@ interface ClaudeSession {
   preview: string | null;
 }
 
-/** Read recent Claude Code JSONL sessions from ALL project directories under ~/.claude/projects/ */
-function listClaudeSessions(): ClaudeSession[] {
+/** Read recent Claude Code JSONL sessions from ~/.claude/projects/.
+ *  If cwd is provided, only scans that project's directory (for /resume compatibility). */
+function listClaudeSessions(cwd?: string): ClaudeSession[] {
   const homeDir = process.env.HOME || '/root';
   const projectsDir = path.join(homeDir, '.claude', 'projects');
 
-  // Scan all project directories for .jsonl session files
-  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date; project: string }> = [];
+  // Determine which project dirs to scan
+  let dirsToScan: string[] = [];
   try {
-    const projectDirs = fs.readdirSync(projectsDir);
-    for (const projDir of projectDirs) {
-      const projPath = path.join(projectsDir, projDir);
-      try {
-        const stat = fs.statSync(projPath);
-        if (!stat.isDirectory()) continue;
-        const entries = fs.readdirSync(projPath);
-        for (const entry of entries) {
-          if (!entry.endsWith('.jsonl')) continue;
-          const fullPath = path.join(projPath, entry);
-          try {
-            const fstat = fs.statSync(fullPath);
-            jsonlFiles.push({ name: entry, fullPath, mtime: fstat.mtime, project: projDir });
-          } catch { /* skip */ }
-        }
-      } catch { /* skip */ }
+    const allDirs = fs.readdirSync(projectsDir);
+    if (cwd) {
+      const cwdDirName = cwd.replace(/\//g, '-');
+      const match = allDirs.find(d => d === cwdDirName);
+      dirsToScan = match ? [match] : allDirs;
+    } else {
+      dirsToScan = allDirs;
     }
-  } catch {
-    return [];
+  } catch { return []; }
+
+  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date }> = [];
+  for (const projDir of dirsToScan) {
+    const projPath = path.join(projectsDir, projDir);
+    try {
+      const stat = fs.statSync(projPath);
+      if (!stat.isDirectory()) continue;
+      const entries = fs.readdirSync(projPath);
+      for (const entry of entries) {
+        if (!entry.endsWith('.jsonl')) continue;
+        const fullPath = path.join(projPath, entry);
+        try {
+          const fstat = fs.statSync(fullPath);
+          jsonlFiles.push({ name: entry, fullPath, mtime: fstat.mtime });
+        } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
   }
 
   jsonlFiles.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());

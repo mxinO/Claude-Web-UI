@@ -31,12 +31,26 @@ export default function Header({ session, connected }: HeaderProps) {
 
   const displayModel = currentModel || session?.model;
 
-  function handleSessionSelect(sessionId: string) {
+  const [resuming, setResuming] = useState(false);
+
+  async function handleSessionSelect(sessionId: string) {
+    if (resuming) return; // prevent double-click
     setPickerVisible(false);
-    // Insert "/resume <id>" into the input box — let user review and press Enter
-    window.dispatchEvent(new CustomEvent('insert-input-text', {
-      detail: { text: `/resume ${sessionId}` }
-    }));
+    setResuming(true);
+    try {
+      const res = await fetch('/api/send-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: `/resume ${sessionId}` }),
+      });
+      const data = await res.json();
+      if (data.response) {
+        window.dispatchEvent(new CustomEvent('claude-command-executed', {
+          detail: { command: '/resume', response: data.response }
+        }));
+      }
+    } catch { /* ignore */ }
+    setResuming(false);
   }
 
   return (
@@ -56,6 +70,7 @@ export default function Header({ session, connected }: HeaderProps) {
               visible={pickerVisible}
               onClose={() => setPickerVisible(false)}
               onSelect={handleSessionSelect}
+              cwd={session?.cwd || undefined}
             />
           </span>
           {session.cwd && (
