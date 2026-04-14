@@ -340,43 +340,29 @@ interface ClaudeSession {
   preview: string | null;
 }
 
-/** Read recent Claude Code JSONL sessions from ~/.claude/projects/ */
+/** Read recent Claude Code JSONL sessions from ALL project directories under ~/.claude/projects/ */
 function listClaudeSessions(): ClaudeSession[] {
   const homeDir = process.env.HOME || '/root';
   const projectsDir = path.join(homeDir, '.claude', 'projects');
 
-  // Map cwd to project directory name (e.g. /home/mxin → -home-mxin)
-  const cwd = process.cwd();
-  const projectDirName = cwd.replace(/\//g, '-');
-
-  // Find matching project directory
-  let projectDir: string | null = null;
+  // Scan all project directories for .jsonl session files
+  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date; project: string }> = [];
   try {
-    const dirs = fs.readdirSync(projectsDir);
-    // Prefer exact match, fall back to closest prefix
-    if (dirs.includes(projectDirName)) {
-      projectDir = path.join(projectsDir, projectDirName);
-    } else {
-      // Try to find a directory matching the cwd
-      const match = dirs.find(d => d === projectDirName || cwd.startsWith(d.replace(/-/g, '/')));
-      if (match) projectDir = path.join(projectsDir, match);
-    }
-  } catch {
-    return [];
-  }
-
-  if (!projectDir) return [];
-
-  // List all .jsonl files sorted by mtime desc, take top 20
-  let jsonlFiles: Array<{ name: string; fullPath: string; mtime: Date }> = [];
-  try {
-    const entries = fs.readdirSync(projectDir);
-    for (const entry of entries) {
-      if (!entry.endsWith('.jsonl')) continue;
-      const fullPath = path.join(projectDir, entry);
+    const projectDirs = fs.readdirSync(projectsDir);
+    for (const projDir of projectDirs) {
+      const projPath = path.join(projectsDir, projDir);
       try {
-        const stat = fs.statSync(fullPath);
-        jsonlFiles.push({ name: entry, fullPath, mtime: stat.mtime });
+        const stat = fs.statSync(projPath);
+        if (!stat.isDirectory()) continue;
+        const entries = fs.readdirSync(projPath);
+        for (const entry of entries) {
+          if (!entry.endsWith('.jsonl')) continue;
+          const fullPath = path.join(projPath, entry);
+          try {
+            const fstat = fs.statSync(fullPath);
+            jsonlFiles.push({ name: entry, fullPath, mtime: fstat.mtime, project: projDir });
+          } catch { /* skip */ }
+        }
       } catch { /* skip */ }
     }
   } catch {
