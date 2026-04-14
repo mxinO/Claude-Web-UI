@@ -4,6 +4,8 @@ const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
 const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
 const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout: 5000 };
 
+let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
+
 export function sendInput(text: string): void {
   // Send the text followed by Enter to Claude Code's TUI.
   // Note: -l (literal) mode doesn't work with Claude Code's input handler.
@@ -30,10 +32,11 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
 
   // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.
   // Only check the LAST few lines of the pane to avoid matching conversation history.
+  if (startupCheckInterval) clearInterval(startupCheckInterval);
   let attempts = 0;
-  const startupCheck = setInterval(() => {
+  startupCheckInterval = setInterval(() => {
     attempts++;
-    if (attempts > 20) { clearInterval(startupCheck); return; }
+    if (attempts > 20) { clearInterval(startupCheckInterval!); startupCheckInterval = null; return; }
     try {
       const paneContent = execSync(
         `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -8`,
@@ -44,7 +47,8 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
       // Check if Claude's main input prompt is visible (bottom of screen)
       // The prompt looks like: ❯ \n followed by separator ──── and status line
       if (lastLines.includes('bypass permissions') || lastLines.includes('shift+tab to cycle')) {
-        clearInterval(startupCheck);
+        clearInterval(startupCheckInterval!);
+        startupCheckInterval = null;
         console.log('Claude is ready');
         return;
       }

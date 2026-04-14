@@ -7,7 +7,6 @@ import {
   getSession,
   getDb,
   insertEvent,
-  updateEvent,
   getEvent,
   createPermissionRequest,
   switchDb,
@@ -305,8 +304,11 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       fileBefore = snapshotFile(tool_input.file_path);
     }
 
-    // Store snapshot keyed by tool_use_id (or fallback key)
-    const key = tool_use_id || `${session_id}_${tool_name}_${Date.now()}`;
+    // Store snapshot keyed by tool_use_id (or stable fallback key for Write tools)
+    const key = tool_use_id ||
+      (tool_name === 'Write' && tool_input && typeof tool_input.file_path === 'string'
+        ? `${session_id}_Write_${tool_input.file_path}`
+        : `${session_id}_${tool_name}_unknown`);
     pendingSnapshots.set(key, { fileBefore, sessionId: session_id, ts: Date.now() });
 
     // Broadcast a lightweight "running" indicator (no DB event)
@@ -367,9 +369,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     if (tool_name === 'Write' && tool_input && typeof tool_input.content === 'string') {
       // Get the pre-write snapshot from PreToolUse
       let preContent: string | null = null;
-      if (tool_use_id && pendingSnapshots.has(tool_use_id)) {
-        preContent = pendingSnapshots.get(tool_use_id)!.fileBefore;
-        pendingSnapshots.delete(tool_use_id);
+      const writeKey = tool_use_id ||
+        (typeof tool_input.file_path === 'string'
+          ? `${session_id}_Write_${tool_input.file_path}`
+          : null);
+      if (writeKey && pendingSnapshots.has(writeKey)) {
+        preContent = pendingSnapshots.get(writeKey)!.fileBefore;
+        pendingSnapshots.delete(writeKey);
       }
       const snippet = buildWriteSnippet(preContent, tool_input.content);
       diffSnippet = JSON.stringify(snippet);
@@ -580,7 +586,6 @@ function importFromJsonl(jsonlPath: string, sessionId: string, cwd?: string): vo
               }
             }
           }
-          const model = msg?.model || null;
           if (text) {
             insertEvent(sessionId, 'assistant_message', {
               message_text: text,

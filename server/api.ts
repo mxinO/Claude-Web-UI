@@ -15,7 +15,8 @@ import type { DbPermissionRequest } from './types.js';
 import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
 import { broadcastPermissionDecision } from './websocket.js';
-import { getCachedCommands } from './commands.js';
+import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } from './hooks.js';
+
 
 export function registerApiRoutes(app: Express): void {
   const router = Router();
@@ -131,12 +132,6 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     try {
-      // Capture pane BEFORE sending to know what's already there
-      const before = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -5`,
-        { encoding: 'utf-8', timeout: 3000 }
-      );
-
       sendInput(text);
 
       // Wait for the command to be processed
@@ -255,15 +250,9 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
-  // Slash commands (scraped from Claude TUI on startup)
-  router.get('/commands', (_req, res) => {
-    res.json(getCachedCommands());
-  });
-
   // POST /api/reset-session — reset session tracking (after /resume)
-  router.post('/reset-session', async (_req, res) => {
+  router.post('/reset-session', (_req, res) => {
     try {
-      const { setManagedSessionId, setWaitingForSessionStart } = await import('./hooks.js');
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
       res.json({ ok: true });
@@ -285,7 +274,6 @@ export function registerApiRoutes(app: Express): void {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Reset managed session so hooks attach to the new one
-      const { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } = await import('./hooks.js');
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
 

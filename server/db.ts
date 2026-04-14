@@ -53,11 +53,6 @@ export function switchDb(newPath: string): void {
   initDb(newPath);
 }
 
-/** Get the current DB file path */
-export function getDbPath(): string | null {
-  return db ? (db as unknown as { name: string }).name : null;
-}
-
 export function createSession(id: string, model?: string, cwd?: string): void {
   const d = getDb();
   d.prepare(

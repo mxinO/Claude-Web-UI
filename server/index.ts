@@ -4,13 +4,12 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
-import { initDb, pruneOldEvents } from './db.js';
+import { initDb } from './db.js';
 import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.js';
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
-import { scrapeCommands } from './commands.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3001');
@@ -78,15 +77,6 @@ server.listen(PORT, HOST, () => {
   }
 
   console.log(`\nOpen in browser: http://${HOST === '0.0.0.0' ? getLocalIP() : HOST}:${PORT}`);
-
-  // Scrape slash commands after Claude is ready
-  // DISABLED: scraping can crash/kill the tmux Claude session
-  // TODO: find a safer way to get the command list
-  // if (!MOCK) {
-  //   setTimeout(async () => {
-  //     try { await scrapeCommands(); } catch { }
-  //   }, 8000);
-  // }
 });
 
 // --- Graceful shutdown ---
@@ -95,7 +85,7 @@ function shutdown() {
   if (!MOCK) {
     try {
       stopClaudeSession();
-      console.log('Sent /exit to Claude Code');
+      console.log('Stopped Claude tmux session');
     } catch { /* ignore */ }
   }
   server.close(() => {

@@ -136,7 +136,7 @@ export default function App() {
       {/* Streaming expanded popup */}
       {streamingExpanded && streamingText && (
         <div className="modal-overlay" onClick={() => setStreamingExpanded(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-container" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">Responding...</span>
               <button className="modal-close" onClick={() => setStreamingExpanded(false)}>×</button>

@@ -45,23 +45,6 @@ const WEB_UI_NOTES: Record<string, string> = {
   '/theme': '(affects TUI only)',
 };
 
-/** Fetch slash commands from the server (scraped from Claude TUI) */
-let commandsCache: Array<{ command: string; description: string; category?: string }> | null = null;
-async function getSlashCommands(): Promise<Array<{ command: string; description: string }>> {
-  if (commandsCache) return commandsCache;
-  try {
-    const res = await fetch('/api/commands');
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        commandsCache = data;
-        return data;
-      }
-    }
-  } catch { /* ignore */ }
-  return FALLBACK_COMMANDS;
-}
-
 type AutocompleteMode = 'none' | 'slash' | 'file';
 
 export default function InputBox() {
@@ -141,25 +124,22 @@ export default function InputBox() {
 
     // Slash commands: input starts with / and no space yet
     if (text.startsWith('/') && !text.includes(' ')) {
-      getSlashCommands().then(commands => {
-        if (cancelled) return;
-        const query = text.toLowerCase();
-        const matches = commands.filter((c) =>
-          !HIDDEN_COMMANDS.has(c.command) &&
-          c.command.toLowerCase().startsWith(query),
-        );
-        setAcMode('slash');
-        setAcItems(
-          matches.map((c) => {
-            const note = WEB_UI_NOTES[c.command];
-            return {
-              label: c.command,
-              detail: note ? `${c.description} ${note}` : c.description,
-            };
-          }),
-        );
-        setAcIndex(0);
-      });
+      const query = text.toLowerCase();
+      const matches = FALLBACK_COMMANDS.filter((c) =>
+        !HIDDEN_COMMANDS.has(c.command) &&
+        c.command.toLowerCase().startsWith(query),
+      );
+      setAcMode('slash');
+      setAcItems(
+        matches.map((c) => {
+          const note = WEB_UI_NOTES[c.command];
+          return {
+            label: c.command,
+            detail: note ? `${c.description} ${note}` : c.description,
+          };
+        }),
+      );
+      setAcIndex(0);
       return () => { cancelled = true; };
     }
 

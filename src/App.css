@@ -745,17 +745,12 @@ body {
   padding: 10px 14px;
   max-width: 85%;
   cursor: pointer;
-  animation: streaming-pulse 2s ease-in-out infinite;
+  animation: tool-pulse 2s ease-in-out infinite;
   transition: background 0.15s;
 }
 
 .streaming-card:hover {
   background: var(--bg-hover);
-}
-
-@keyframes streaming-pulse {
-  0%, 100% { border-color: var(--text-accent); }
-  50% { border-color: var(--border); }
 }
 
 .streaming-card-header {

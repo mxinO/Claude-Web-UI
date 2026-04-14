@@ -37,9 +37,6 @@ export default function Autocomplete({ items, selectedIndex, onSelect, visible }
             e.preventDefault(); // prevent textarea blur
             onSelect(i);
           }}
-          onMouseEnter={() => {
-            // optional: could add hover tracking via callback
-          }}
         >
           {item.icon && <span className="autocomplete-icon">{item.icon}</span>}
           <span className="autocomplete-label">{item.label}</span>

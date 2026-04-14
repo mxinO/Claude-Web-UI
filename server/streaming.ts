@@ -136,6 +136,6 @@ function parseClaudeOutput(paneContent: string): string | null {
     }
   }
 
-  let text = cleaned.join('\n').trim();
+  const text = cleaned.join('\n').trim();
   return text || null;
 }

@@ -31,7 +31,7 @@ export default function SessionPicker({ visible, onClose, onSelect, cwd }: Sessi
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [visible]);
+  }, [visible, cwd]);
 
   if (!visible) return null;
 
