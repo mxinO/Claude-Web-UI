@@ -7,15 +7,21 @@ const MIN_ROWS = 1;
 const MAX_ROWS = 6;
 const LINE_HEIGHT = 20; // px
 
-const SLASH_COMMANDS = [
-  { command: '/model', description: 'Switch model', hasSubmenu: true },
+// Fallback commands for mock mode or if API is unavailable
+const FALLBACK_COMMANDS = [
+  { command: '/model', description: 'Switch model' },
   { command: '/compact', description: 'Compact conversation' },
-  { command: '/clear', description: 'Clear conversation' },
+  { command: '/effort', description: 'Set effort level' },
   { command: '/help', description: 'Show help' },
   { command: '/cost', description: 'Show token costs' },
-  { command: '/effort', description: 'Set effort level', hasSubmenu: true },
-  { command: '/review', description: 'Review code' },
+  { command: '/review', description: 'Review a pull request' },
+  { command: '/diff', description: 'View uncommitted changes' },
+  { command: '/clear', description: 'Clear conversation history' },
+  { command: '/exit', description: 'Exit the REPL' },
 ];
+
+// Sub-menus for commands that need them
+const SUBMENU_COMMANDS = new Set(['/model', '/effort']);
 
 const MODEL_OPTIONS = [
   { value: 'opus', label: 'Opus 4.6 (1M context)' },
@@ -28,6 +34,23 @@ const EFFORT_OPTIONS = [
   { value: 'medium', label: 'Medium effort' },
   { value: 'high', label: 'High effort' },
 ];
+
+/** Fetch slash commands from the server (scraped from Claude TUI) */
+let commandsCache: Array<{ command: string; description: string; category?: string }> | null = null;
+async function getSlashCommands(): Promise<Array<{ command: string; description: string }>> {
+  if (commandsCache) return commandsCache;
+  try {
+    const res = await fetch('/api/commands');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        commandsCache = data;
+        return data;
+      }
+    }
+  } catch { /* ignore */ }
+  return FALLBACK_COMMANDS;
+}
 
 type AutocompleteMode = 'none' | 'slash' | 'model' | 'effort' | 'file';
 
@@ -67,11 +90,12 @@ export default function InputBox() {
   }, [value]);
 
   const updateAutocomplete = useCallback(
-    (text: string) => {
+    async (text: string) => {
       // Slash commands: input starts with /
       if (text.startsWith('/') && !text.includes(' ')) {
         const query = text.toLowerCase();
-        const matches = SLASH_COMMANDS.filter((c) =>
+        const commands = await getSlashCommands();
+        const matches = commands.filter((c) =>
           c.command.toLowerCase().startsWith(query),
         );
         setAcMode('slash');
@@ -79,7 +103,7 @@ export default function InputBox() {
           matches.map((c) => ({
             label: c.command,
             detail: c.description,
-            icon: c.hasSubmenu ? '>' : undefined,
+            icon: SUBMENU_COMMANDS.has(c.command) ? '>' : undefined,
           })),
         );
         setAcIndex(0);
@@ -199,8 +223,7 @@ export default function InputBox() {
       if (!item) return;
 
       if (acMode === 'slash') {
-        const cmd = SLASH_COMMANDS.find((c) => c.command === item.label);
-        if (cmd?.hasSubmenu) {
+        if (SUBMENU_COMMANDS.has(item.label)) {
           setValue(item.label + ' ');
         } else {
           send(item.label);

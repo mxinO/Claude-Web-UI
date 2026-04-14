@@ -14,6 +14,7 @@ import {
 import type { DbPermissionRequest } from './types.js';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
 import { broadcastPermissionDecision } from './websocket.js';
+import { getCachedCommands } from './commands.js';
 
 export function registerApiRoutes(app: Express): void {
   const router = Router();
@@ -193,6 +194,11 @@ export function registerApiRoutes(app: Express): void {
     } catch (err) {
       res.status(404).json({ error: `Cannot read file: ${err}` });
     }
+  });
+
+  // Slash commands (scraped from Claude TUI on startup)
+  router.get('/commands', (_req, res) => {
+    res.json(getCachedCommands());
   });
 
   // List directory contents (1 level) for @file autocomplete and file explorer

@@ -10,6 +10,7 @@ import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
+import { scrapeCommands } from './commands.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3001');
@@ -79,6 +80,17 @@ server.listen(PORT, HOST, () => {
   }
 
   console.log(`\nOpen in browser: http://${HOST === '0.0.0.0' ? getLocalIP() : HOST}:${PORT}`);
+
+  // Scrape slash commands after Claude is ready (give it time to initialize)
+  if (!MOCK) {
+    setTimeout(async () => {
+      try {
+        await scrapeCommands();
+      } catch (err) {
+        console.error('Failed to scrape commands:', err);
+      }
+    }, 8000); // wait 8s for Claude to fully start
+  }
 });
 
 // --- Graceful shutdown ---
