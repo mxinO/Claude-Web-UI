@@ -38,14 +38,16 @@ cleanup_previous() {
 
 cleanup_previous
 
-# Install deps if needed
-if [ ! -d node_modules ]; then
+# Install deps if needed or if package.json changed since last install
+if [ ! -d node_modules ] || [ package.json -nt node_modules/.package-lock.json 2>/dev/null ]; then
   echo "Installing dependencies..."
   npm install --silent
 fi
 
-# Build if needed
-if [ ! -d dist/client ]; then
+# Build if needed or if source changed since last build
+NEWEST_SRC=$(find src server -name '*.ts' -o -name '*.tsx' -o -name '*.css' 2>/dev/null | xargs stat -c %Y 2>/dev/null | sort -rn | head -1)
+BUILT_AT=$(stat -c %Y dist/client/index.html 2>/dev/null || echo 0)
+if [ ! -d dist/client ] || [ "${NEWEST_SRC:-0}" -gt "$BUILT_AT" ]; then
   echo "Building frontend..."
   npx vite build --silent
 fi
