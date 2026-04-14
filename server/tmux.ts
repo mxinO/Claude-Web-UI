@@ -29,21 +29,32 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
   execSync(cmd, execOpts);
 
   // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.
-  // Poll every second for up to 15 seconds. Press Enter when we see a dialog.
-  // Stop when we see the main prompt (❯).
+  // Only check the LAST few lines of the pane to avoid matching conversation history.
   let attempts = 0;
   const startupCheck = setInterval(() => {
     attempts++;
-    if (attempts > 15) { clearInterval(startupCheck); return; }
+    if (attempts > 20) { clearInterval(startupCheck); return; }
     try {
       const paneContent = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -8`,
         execOpts
       );
-      if (paneContent.includes('❯ ') && !paneContent.includes('Enter to confirm')) {
-        // Main prompt visible — Claude is ready
+      const lastLines = paneContent.trim();
+
+      // Check if Claude's main input prompt is visible (bottom of screen)
+      // The prompt looks like: ❯ \n followed by separator ──── and status line
+      if (lastLines.includes('bypass permissions') || lastLines.includes('shift+tab to cycle')) {
         clearInterval(startupCheck);
-      } else if (paneContent.includes('Enter to confirm') || paneContent.includes('trust') || paneContent.includes('Trust') || paneContent.includes('/theme') || paneContent.includes('Choose') || paneContent.includes('Dark mode') || paneContent.includes('Let\'s get started')) {
+        console.log('Claude is ready');
+        return;
+      }
+
+      // Startup dialogs that need Enter:
+      if (lastLines.includes('Enter to confirm') ||
+          lastLines.includes('trust this folder') ||
+          lastLines.includes('Yes, I trust') ||
+          lastLines.includes('Dark mode') ||
+          lastLines.includes('Press Enter to continue')) {
         execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
         console.log('Auto-accepted startup prompt');
       }
@@ -55,18 +66,9 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
 
 export function stopClaudeSession(): void {
   try {
-    // Send /exit to Claude Code gracefully
-    sendInput('/exit');
-    // Give it a moment then kill if still alive
-    setTimeout(() => {
-      try {
-        execSync(`tmux kill-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);
-      } catch {
-        // already dead
-      }
-    }, 3000);
+    execSync(`tmux kill-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);
   } catch {
-    // session might already be dead
+    // already dead
   }
 }
 
