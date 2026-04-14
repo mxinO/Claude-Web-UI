@@ -216,6 +216,81 @@ function DetailContent({ event }: { event: TimelineEvent }) {
 
     case 'permission_request': {
       const input = parseToolInput(event.tool_input);
+      const tn = (event.tool_name || '').toLowerCase();
+
+      // For Write: show file path and content preview
+      if (tn === 'write' && input.content) {
+        const filePath = (input.file_path as string) || '';
+        const language = detectLanguage(filePath);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ padding: '8px 0', fontSize: 13 }}>
+              <strong>Write to:</strong> {filePath}
+              <span style={{ marginLeft: 12, color: 'var(--text-secondary)' }}>
+                ({((input.content as string) || '').split('\n').length} lines)
+              </span>
+              <span style={{ marginLeft: 12, color: event.status === 'pending' ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+                Status: {event.status}
+              </span>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <Suspense fallback={<div className="modal-loading">Loading editor...</div>}>
+                <LazyDiffViewer original="" modified={input.content as string} language={language} fileName={filePath} />
+              </Suspense>
+            </div>
+            {filePath && <FullFileButton filePath={filePath} />}
+          </div>
+        );
+      }
+
+      // For Edit: show diff
+      if (tn === 'edit' && input.old_string) {
+        const filePath = (input.file_path as string) || '';
+        const language = detectLanguage(filePath);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ padding: '8px 0', fontSize: 13 }}>
+              <strong>Edit:</strong> {filePath}
+              <span style={{ marginLeft: 12, color: event.status === 'pending' ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+                Status: {event.status}
+              </span>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              <Suspense fallback={<div className="modal-loading">Loading diff...</div>}>
+                <LazyDiffViewer
+                  original={input.old_string as string}
+                  modified={input.new_string as string}
+                  language={language}
+                  fileName={filePath}
+                />
+              </Suspense>
+            </div>
+          </div>
+        );
+      }
+
+      // For Bash: show command
+      if (tn === 'bash' && input.command) {
+        return (
+          <div>
+            <div style={{ fontSize: 13, marginBottom: 8 }}>
+              <strong>Command:</strong>
+              <span style={{ marginLeft: 12, color: event.status === 'pending' ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+                Status: {event.status}
+              </span>
+            </div>
+            <pre style={{
+              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              borderRadius: 4, padding: 12, fontSize: 13, fontFamily: 'Consolas, monospace',
+              color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              $ {input.command as string}
+            </pre>
+          </div>
+        );
+      }
+
+      // Generic: JSON dump
       return (
         <div>
           <div><strong>Tool:</strong> {event.tool_name}</div>

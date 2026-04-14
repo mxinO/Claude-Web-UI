@@ -131,6 +131,22 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
     const tn = (input.tool_name as string) ?? tool_name ?? 'unknown';
     const isPending = event.status === 'pending';
 
+    // Build a descriptive summary based on tool type
+    let detail = '';
+    const tnLower = tn.toLowerCase();
+    if (tnLower === 'write') {
+      const fp = (input.file_path as string) || '';
+      const shortPath = fp.length > 40 ? '...' + fp.slice(-37) : fp;
+      const contentLen = ((input.content as string) || '').split('\n').length;
+      detail = `${shortPath} (${contentLen} lines)`;
+    } else if (tnLower === 'edit') {
+      const fp = (input.file_path as string) || '';
+      const shortPath = fp.length > 40 ? '...' + fp.slice(-37) : fp;
+      detail = shortPath;
+    } else if (tnLower === 'bash') {
+      detail = `$ ${((input.command as string) || '').slice(0, 60)}`;
+    }
+
     return (
       <div className="chat-row chat-row--assistant">
         <div
@@ -141,7 +157,9 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
           onKeyDown={(e) => { if (e.key === 'Enter') onOpenDetail(event); }}
         >
           <span className="tool-card-icon">{'\uD83D\uDD12'}</span>
-          <span className="tool-card-summary">Permission: {tn}</span>
+          <span className="tool-card-summary">
+            Permission: {tn}{detail ? ` — ${detail}` : ''}
+          </span>
           <span className="tool-card-time">{time}</span>
         </div>
         {isPending && <PermissionBar eventId={event.id} />}
