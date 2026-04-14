@@ -18,6 +18,15 @@ export default function Header({ session, connected }: HeaderProps) {
   const [status, setStatus] = useState<ClaudeStatus>({ model: null, cwd: null, effort: null, permissionMode: null });
   const [pickerVisible, setPickerVisible] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+  });
+
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
   const sessionIdRef = useRef<HTMLSpanElement>(null);
 
   // Fetch status on mount and when a command is executed
@@ -107,6 +116,13 @@ export default function Header({ session, connected }: HeaderProps) {
           {status.effort}
         </span>
       )}
+      <button
+        className="theme-toggle"
+        onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+        title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+      >
+        {theme === 'dark' ? '\u2600' : '\u263E'}
+      </button>
       <div className="status">
         <div className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
         <span>{connected ? 'Connected' : 'Disconnected'}</span>

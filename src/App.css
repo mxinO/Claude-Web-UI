@@ -11,6 +11,23 @@
   --red: #f44747;
   --yellow: #dcdcaa;
   --purple: #c586c0;
+  --user-bubble: #2b5278;
+}
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e8e8e8;
+  --bg-hover: #dcdcdc;
+  --border: #d4d4d4;
+  --text-primary: #1e1e1e;
+  --text-secondary: #6e6e6e;
+  --text-accent: #0066b8;
+  --green: #16825d;
+  --red: #cd3131;
+  --yellow: #795e26;
+  --purple: #af00db;
+  --user-bubble: #d0e8ff;
 }
 
 * {
@@ -168,7 +185,7 @@ body {
 }
 
 .chat-bubble--user {
-  background: #2b5278;
+  background: var(--user-bubble);
   color: var(--text-primary);
   border-bottom-right-radius: 4px;
 }
@@ -889,7 +906,7 @@ body {
 }
 
 .autocomplete-item.selected {
-  background: #2b5278;
+  background: var(--user-bubble);
 }
 
 .autocomplete-icon {
@@ -1215,4 +1232,22 @@ body {
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--text-secondary);
+}
+
+/* ── Theme toggle ────────────────────────────────────────────── */
+
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 2px 6px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.theme-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
 }
