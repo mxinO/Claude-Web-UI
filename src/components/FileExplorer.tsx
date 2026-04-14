@@ -23,12 +23,21 @@ export default function FileExplorer({ visible, onClose, onInsert }: FileExplore
   const [loading, setLoading] = useState(false);
   const [viewFile, setViewFile] = useState<{ path: string; content: string } | null>(null);
 
-  // Load root directory on open
+  // Load root directory on open — use Claude's actual CWD
   useEffect(() => {
     if (visible && roots.length === 0) {
-      loadDir('.').then((items) => {
+      (async () => {
+        let cwd = '.';
+        try {
+          const status = await fetch('/api/current-status');
+          if (status.ok) {
+            const data = await status.json();
+            if (data.cwd) cwd = data.cwd;
+          }
+        } catch { /* fall back to '.' */ }
+        const items = await loadDir(cwd);
         setRoots(items.map((e) => ({ entry: e, children: null, expanded: false })));
-      });
+      })();
     }
   }, [visible, roots.length]);
 

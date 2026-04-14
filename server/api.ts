@@ -27,9 +27,6 @@ function isPathSafe(filePath: string): boolean {
     // Resolve symlinks to prevent symlink traversal
     let realPath: string;
     try { realPath = fs.realpathSync(resolved); } catch { realPath = resolved; }
-    // Must be under HOME
-    const home = process.env.HOME || '/root';
-    if (!realPath.startsWith(home)) return false;
     // Block sensitive paths
     const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud'];
     if (blocked.some(b => realPath.includes('/' + b + '/') || realPath.endsWith('/' + b))) return false;
