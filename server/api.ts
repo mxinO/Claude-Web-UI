@@ -157,8 +157,12 @@ export function registerApiRoutes(app: Express): void {
   });
 
   // POST /api/interrupt — send Escape to interrupt current operation
-  router.post('/interrupt', (_req, res) => {
+  router.post('/interrupt', async (_req, res) => {
     try {
+      // Stop streaming poll first
+      const { stopStreaming } = await import('./streaming.js');
+      stopStreaming();
+      // Send Escape to tmux
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
       res.json({ ok: true });
     } catch (err) {

@@ -18,18 +18,26 @@ export default function App() {
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
   const [cancelledText, setCancelledText] = useState<string | null>(null);
+  const cancelledRef = useRef(false);
   const { events, addEvent, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onStreaming = useCallback((text: string) => {
+    if (cancelledRef.current) return; // ignore streaming after cancel
     setStreamingText(text);
-    setCancelledText(null); // clear any previous cancelled state
+    setCancelledText(null);
   }, []);
 
   const onEvent = useCallback((event: TimelineEvent) => {
     if (event.event_type === 'assistant_message') {
-      // Clear streaming — the final message takes over
       setStreamingText(null);
       setStreamingExpanded(false);
+      cancelledRef.current = false;
+      setCancelledText(null);
+    }
+    if (event.event_type === 'user_message') {
+      // New turn — reset cancelled state
+      cancelledRef.current = false;
+      setCancelledText(null);
     }
     addEvent(event);
   }, [addEvent]);
@@ -57,6 +65,7 @@ export default function App() {
   // Listen for interrupt (stop button)
   useEffect(() => {
     const handler = () => {
+      cancelledRef.current = true;
       if (streamingText) {
         setCancelledText(streamingText);
       }
@@ -112,8 +121,8 @@ export default function App() {
     return last.event_type === 'user_message';
   })();
 
-  // Running state: thinking, streaming, or a tool is in progress
-  const isRunning = isThinking || !!streamingText || events.some(e => e.event_type === 'tool_running');
+  // Running state: thinking, streaming, or a tool is in progress (but not after cancel)
+  const isRunning = !cancelledRef.current && (isThinking || !!streamingText || events.some(e => e.event_type === 'tool_running'));
 
   return (
     <div className="app">
