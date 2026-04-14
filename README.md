@@ -37,29 +37,28 @@ The server manages a Claude Code process inside a tmux session. Claude Code hook
 - **Claude Code** installed and authenticated (`claude` command works)
 - **jq** (for the permission hook script)
 
-## Install
+## Quick Start
 
 ```bash
-git clone <repo-url> claude-web-ui
-cd claude-web-ui
-npm install
-npm run build
-```
+# One-liner: clone + install + build + start
+git clone https://github.com/mxinO/Claude-Web-UI.git && cd Claude-Web-UI && ./start.sh
 
-## Start
-
-```bash
-# Start server + Claude Code in tmux (default CWD: current directory)
-npm start
-
-# Start with a specific working directory for Claude
-npm start /path/to/project
-
-# Start in mock mode (no tmux/Claude, for UI testing)
-npm run start:mock
+# Or with a specific working directory
+./start.sh /path/to/project
 ```
 
 Then open `http://<server-ip>:3001` in your browser.
+
+The `start.sh` script auto-detects first run and handles `npm install` + build. Subsequent starts are instant.
+
+### Other ways to start
+
+```bash
+# Using npm directly
+npm start                          # default CWD
+npm start /path/to/project         # specific CWD
+npm run start:mock                 # mock mode (no Claude, for UI testing)
+```
 
 ### Environment Variables
 
