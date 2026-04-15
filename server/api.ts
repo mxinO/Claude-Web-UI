@@ -18,7 +18,7 @@ import type { DbPermissionRequest } from './types.js';
 import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
-import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
+import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage, setForceReimport } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
 import { stopStreaming } from './streaming.js';
 
@@ -507,6 +507,7 @@ export function registerApiRoutes(app: Express): void {
       // Reset managed session so hooks attach to the new one
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
+      setForceReimport(true);
 
       // Start Claude with --resume in the session's CWD
       const targetCwd = cwd || process.cwd();

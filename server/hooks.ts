@@ -44,11 +44,14 @@ let managedSessionId: string | null = null;
 // In real mode, we wait for SessionStart before accepting any events.
 // This prevents events from other Claude sessions leaking in during startup.
 let waitingForSessionStart = false;
+// When true, force re-import from JSONL even if DB has events (set by switch-session)
+let forceReimport = false;
 
 export function getManagedSessionId(): string | null { return managedSessionId; }
 export function setManagedSessionId(id: string | null): void { managedSessionId = id; }
 export function isWaitingForSessionStart(): boolean { return waitingForSessionStart; }
 export function setWaitingForSessionStart(val: boolean): void { waitingForSessionStart = val; }
+export function setForceReimport(val: boolean): void { forceReimport = val; }
 
 /** Ensure a session exists, creating one if needed. */
 function ensureSession(sessionId: string, cwd?: string, model?: string): void {
@@ -238,12 +241,17 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
             "UPDATE permission_requests SET decision = 'allow', decided_at = datetime('now'), response_json = ? WHERE decision = 'pending'"
           ).run(allowJson);
 
-          // If DB has no events for this session, import from Claude's JSONL transcript.
-          // Our DB has richer data (permissions, tool details) so don't overwrite it.
+          // Import from JSONL when DB is empty or on resume (forceReimport).
+          // On resume the JSONL has the full conversation; our DB may be stale.
           const eventCount = (getDb().prepare(
             'SELECT COUNT(*) as cnt FROM events WHERE session_id = ?'
           ).get(session_id) as { cnt: number }).cnt;
-          if (eventCount === 0) {
+          if (eventCount === 0 || forceReimport) {
+            if (forceReimport && eventCount > 0) {
+              getDb().prepare('DELETE FROM events WHERE session_id = ?').run(session_id);
+              getDb().prepare('DELETE FROM sessions WHERE id = ?').run(session_id);
+            }
+            forceReimport = false;
             const jsonlPath = path.join(path.dirname(sessionDbPath), `${session_id}.jsonl`);
             importFromJsonl(jsonlPath, session_id, cwd);
           }
