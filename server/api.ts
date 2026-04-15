@@ -49,6 +49,107 @@ function getClaudeCwd(): string {
   return process.cwd();
 }
 
+/** Convert a model ID like "claude-opus-4-6" to a display name like "Opus 4.6" */
+function formatModelName(id: string): string {
+  // "claude-opus-4-6" → "opus-4-6" → "Opus 4.6"
+  const stripped = id.replace(/^claude-/, '');
+  const parts = stripped.split('-');
+  if (parts.length >= 2) {
+    const name = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+    const version = parts.slice(1).join('.');
+    return `${name} ${version}`;
+  }
+  return stripped;
+}
+
+/** Permission mode ID → display name mapping */
+const PERM_DISPLAY: Record<string, string> = {
+  'bypassPermissions': 'bypass',
+  'acceptEdits': 'acceptEdits',
+  'auto': 'auto',
+  'plan': 'plan',
+  'default': 'default',
+};
+
+/**
+ * Read model/effort/permissionMode from file sources.
+ * Priority: session JSONL (most current) → settings.json (defaults) → null
+ */
+function readStatusFromFiles(sessionId: string | null): {
+  model: string | null;
+  effort: string | null;
+  permissionMode: string | null;
+} {
+  let model: string | null = null;
+  let effort: string | null = null;
+  let permissionMode: string | null = null;
+
+  // 1. Try session JSONL — read from the end for most recent values
+  if (sessionId) {
+    try {
+      const homeDir = process.env.HOME || '/root';
+      const projectsDir = path.join(homeDir, '.claude', 'projects');
+      const dirs = fs.readdirSync(projectsDir);
+      let jsonlPath: string | null = null;
+      for (const dir of dirs) {
+        const candidate = path.join(projectsDir, dir, `${sessionId}.jsonl`);
+        if (fs.existsSync(candidate)) { jsonlPath = candidate; break; }
+      }
+      if (jsonlPath) {
+        // Read last 50KB — enough to find recent assistant message and permission-mode
+        const stat = fs.statSync(jsonlPath);
+        const readSize = Math.min(stat.size, 50 * 1024);
+        const buf = Buffer.alloc(readSize);
+        const fd = fs.openSync(jsonlPath, 'r');
+        try {
+          fs.readSync(fd, buf, 0, readSize, Math.max(0, stat.size - readSize));
+        } finally {
+          fs.closeSync(fd);
+        }
+        const tail = buf.toString('utf-8');
+        const lines = tail.split('\n').filter(Boolean);
+        // If we started mid-file, the first "line" is truncated — discard it
+        if (stat.size > readSize && lines.length > 0) lines.shift();
+
+        // Walk backwards for most recent values
+        for (let i = lines.length - 1; i >= 0; i--) {
+          try {
+            const obj = JSON.parse(lines[i]);
+            // Model from assistant response
+            if (!model && obj.type === 'assistant' && obj.message?.model) {
+              model = formatModelName(obj.message.model as string);
+            }
+            // Permission mode from permission-mode entry
+            if (!permissionMode && obj.type === 'permission-mode' && obj.permissionMode) {
+              permissionMode = PERM_DISPLAY[obj.permissionMode] || obj.permissionMode;
+            }
+            if (model && permissionMode) break;
+          } catch { /* skip malformed lines */ }
+        }
+      }
+    } catch { /* JSONL not available */ }
+  }
+
+  // 2. Fall back to ~/.claude/settings.json for missing values
+  try {
+    const settingsPath = path.join(process.env.HOME || '/root', '.claude', 'settings.json');
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    if (!model && settings.model) {
+      // settings.json uses short names like "opus" — capitalize them
+      const id = settings.model as string;
+      model = id.charAt(0).toUpperCase() + id.slice(1);
+    }
+    if (!effort && settings.effortLevel) {
+      effort = settings.effortLevel;
+    }
+    if (!permissionMode && settings.permissions?.defaultMode) {
+      permissionMode = PERM_DISPLAY[settings.permissions.defaultMode] || settings.permissions.defaultMode;
+    }
+  } catch { /* settings.json not available */ }
+
+  return { model, effort, permissionMode };
+}
+
 export function registerApiRoutes(app: Express): void {
   const router = Router();
 
@@ -435,48 +536,53 @@ export function registerApiRoutes(app: Express): void {
   // Current model, CWD, permission mode, and effort (parsed from tmux pane)
   router.get('/current-status', (_req, res) => {
     try {
-      // Capture a large range — header may be scrolled far up.
-      // -S -500: up to 500 lines of scrollback. The regex search is fast (< 1ms);
-      // the exec overhead dominates, not the data size. This is acceptable.
-      const headerCapture = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
-        { encoding: 'utf-8', timeout: 3000 }
-      );
-      const statusCapture = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
-        { encoding: 'utf-8', timeout: 3000 }
-      );
-
-      // Model: "Opus 4.6" or "Sonnet 4.6 (1M context)"
-      const modelMatch = headerCapture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
-      // CWD: a line inside the box containing an absolute path, e.g. "│  /home/user/project  │"
-      const cwdMatch = headerCapture.match(/│\s+(\/\S+)\s+│/);
-      // Effort: "with high effort"
-      const effortMatch = headerCapture.match(/with\s+(low|medium|high|max)\s+effort/i);
-      // Permission mode from status bar: "bypass permissions on" or "plan mode on" or "default" etc.
-      let permissionMode: string | null = null;
-      if (statusCapture.includes('plan mode')) permissionMode = 'plan';
-      else if (statusCapture.includes('bypass permissions')) permissionMode = 'bypass';
-      else if (statusCapture.includes('auto-accept')) permissionMode = 'auto';
-      else if (statusCapture.includes('accept edits')) permissionMode = 'acceptEdits';
-      else if (statusCapture.includes('default')) permissionMode = 'default';
-
-      // CWD: prefer the session's CWD from DB (reliable, especially after resume
-      // where the tmux header may have scrolled off). Fall back to tmux parsing.
-      let cwd: string | null = null;
       const managedId = getManagedSessionId();
+
+      // 1. File-based sources: JSONL → settings.json
+      const fileStatus = readStatusFromFiles(managedId);
+      let { model, effort, permissionMode } = fileStatus;
+
+      // 2. CWD from session DB
+      let cwd: string | null = null;
       if (managedId) {
         const sess = getSession(managedId);
         if (sess?.cwd) cwd = sess.cwd;
       }
-      if (!cwd && cwdMatch) cwd = cwdMatch[1];
 
-      res.json({
-        model: modelMatch ? modelMatch[0] : null,
-        cwd,
-        effort: effortMatch ? effortMatch[1].toLowerCase() : null,
-        permissionMode,
-      });
+      // 3. Tmux fallback for anything still missing
+      if (!model || !cwd || !effort || !permissionMode) {
+        try {
+          const headerCapture = execSync(
+            `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
+            { encoding: 'utf-8', timeout: 3000 }
+          );
+          if (!model) {
+            const m = headerCapture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
+            if (m) model = m[0];
+          }
+          if (!cwd) {
+            const m = headerCapture.match(/│\s+(\/\S+)\s+│/);
+            if (m) cwd = m[1];
+          }
+          if (!effort) {
+            const m = headerCapture.match(/with\s+(low|medium|high|max)\s+effort/i);
+            if (m) effort = m[1].toLowerCase();
+          }
+          if (!permissionMode) {
+            const statusCapture = execSync(
+              `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
+              { encoding: 'utf-8', timeout: 3000 }
+            );
+            if (statusCapture.includes('plan mode')) permissionMode = 'plan';
+            else if (statusCapture.includes('bypass permissions')) permissionMode = 'bypass';
+            else if (statusCapture.includes('auto-accept')) permissionMode = 'auto';
+            else if (statusCapture.includes('accept edits')) permissionMode = 'acceptEdits';
+            else if (statusCapture.includes('default')) permissionMode = 'default';
+          }
+        } catch { /* tmux not available */ }
+      }
+
+      res.json({ model, cwd, effort, permissionMode });
     } catch {
       res.json({ model: null, cwd: null, effort: null, permissionMode: null });
     }
