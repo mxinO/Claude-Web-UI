@@ -13,11 +13,21 @@ import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStar
 import { addAllowedRoot } from './api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.PORT || '3001');
-const HOST = process.env.HOST || '0.0.0.0';
-const MOCK = process.argv.includes('--mock');
-// Working directory for Claude — pass as argument after flags, or use CWD
-const CLAUDE_CWD = process.argv.find((a, i) => i > 1 && !a.startsWith('-')) || process.cwd();
+// Parse CLI args: --host, --port, --mock, and positional CWD
+function parseArgs(argv: string[]) {
+  let host = process.env.HOST || 'localhost';
+  let port = parseInt(process.env.PORT || '3001');
+  let mock = false;
+  let cwd = process.cwd();
+  for (let i = 2; i < argv.length; i++) {
+    if (argv[i] === '--host' && argv[i + 1] && !argv[i + 1].startsWith('-')) { host = argv[++i]; }
+    else if (argv[i] === '--port' && argv[i + 1] && !argv[i + 1].startsWith('-')) { port = parseInt(argv[++i]); }
+    else if (argv[i] === '--mock') { mock = true; }
+    else if (!argv[i].startsWith('-')) { cwd = argv[i]; }
+  }
+  return { host, port, mock, cwd };
+}
+const { host: HOST, port: PORT, mock: MOCK, cwd: CLAUDE_CWD } = parseArgs(process.argv);
 
 // --- Database ---
 // Start with a temporary DB; SessionStart hook will switch to the per-session DB

@@ -1,13 +1,26 @@
 #!/bin/bash
 # Claude Code Web UI — one-command start
-# Usage: ./start.sh [working-directory]
+# Usage: ./start.sh [--host HOST] [--port PORT] [working-directory]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-CWD="${1:-$(pwd)}"
+HOST="${HOST:-localhost}"
 PORT="${PORT:-3001}"
+CWD=""
 TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
 PID_FILE="$SCRIPT_DIR/data/.server.pid"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --host) [[ $# -ge 2 ]] || { echo "Error: --host requires a value"; exit 1; }; HOST="$2"; shift 2 ;;
+    --port) [[ $# -ge 2 ]] || { echo "Error: --port requires a value"; exit 1; }; PORT="$2"; shift 2 ;;
+    --mock) MOCK=1; shift ;;
+    -*) echo "Unknown option: $1"; echo "Usage: ./start.sh [--host HOST] [--port PORT] [working-directory]"; exit 1 ;;
+    *) CWD="$1"; shift ;;
+  esac
+done
+CWD="${CWD:-$(pwd)}"
 
 # If run via curl pipe, clone first
 if [ ! -f "$SCRIPT_DIR/package.json" ]; then
@@ -66,15 +79,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+if [ "$HOST" = "0.0.0.0" ]; then
+  DISPLAY_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+else
+  DISPLAY_HOST="$HOST"
+fi
 echo ""
 echo "Starting Claude Code Web UI..."
 echo "  Working directory: $CWD"
-echo "  URL: http://${IP}:${PORT}"
+echo "  URL: http://${DISPLAY_HOST}:${PORT}"
 echo ""
 
 # Start server and record PID
-npx tsx server/index.ts "$CWD" &
+EXTRA_ARGS=""
+[ "${MOCK:-}" = "1" ] && EXTRA_ARGS="--mock"
+npx tsx server/index.ts --host "$HOST" --port "$PORT" $EXTRA_ARGS "$CWD" &
 SERVER_PID=$!
 echo "$SERVER_PID" > "$PID_FILE"
 
