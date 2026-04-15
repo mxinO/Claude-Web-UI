@@ -24,7 +24,7 @@ export function sendInput(text: string): void {
   try {
     fs.writeFileSync(tmpFile, text + '\n');
     execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
-    execSync(`tmux paste-buffer -d -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+    execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
