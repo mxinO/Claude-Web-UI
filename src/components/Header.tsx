@@ -96,7 +96,6 @@ export default function Header({ session, connected }: HeaderProps) {
               visible={pickerVisible}
               onClose={() => setPickerVisible(false)}
               onSelect={handleSessionSelect}
-              cwd={session?.cwd || undefined}
             />
           </span>
           {displayCwd && (
