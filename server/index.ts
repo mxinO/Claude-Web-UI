@@ -4,11 +4,11 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
-import { initDb } from './db.js';
+import { initDb, createSession, switchDb } from './db.js';
 import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.js';
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
-import { getSessionStatus, startClaudeSession, stopClaudeSession } from './tmux.js';
+import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION as TMUX_SESS, TMUX_PANE } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,6 +66,9 @@ server.listen(PORT, HOST, () => {
   const status = getSessionStatus();
   if (status.alive) {
     console.log(`tmux session "${TMUX_SESSION}" already running — attaching hooks to it`);
+    // Bootstrap: the session already sent SessionStart before we existed.
+    // Parse tmux pane to get model/cwd, create a synthetic session so the UI works.
+    bootstrapExistingSession();
   } else {
     try {
       startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD);
@@ -167,6 +170,48 @@ function setupHooks() {
 
   const settings = { hooks: mergedHooks };
   fs.writeFileSync(HOOKS_SETTINGS_PATH, JSON.stringify(settings, null, 2));
+}
+
+/** When attaching to an already-running tmux Claude session, bootstrap
+ *  a session record so the UI has something to display. Hooks won't fire
+ *  for events that already happened. */
+function bootstrapExistingSession() {
+  try {
+    const capture = execSync(
+      `tmux capture-pane -t ${TMUX_SESS}:${TMUX_PANE} -p -S -500 -E 15`,
+      { encoding: 'utf-8', timeout: 3000 }
+    );
+    const modelMatch = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+/i);
+    const cwdMatch = capture.match(/│\s+(\/\S+)\s+│/);
+    const model = modelMatch ? modelMatch[0] : undefined;
+    const cwd = cwdMatch ? cwdMatch[1] : CLAUDE_CWD;
+
+    // Use a synthetic session ID based on tmux session name + timestamp
+    const sessionId = `webui-${TMUX_SESSION}-${Date.now()}`;
+
+    // Switch to per-session DB if we have a CWD
+    if (cwd) {
+      const homeDir = process.env.HOME || '/root';
+      const projectDirName = cwd.replace(/\//g, '-');
+      const sessionDbDir = path.join(homeDir, '.claude', 'projects', projectDirName);
+      const sessionDbPath = path.join(sessionDbDir, `${sessionId}.webui.db`);
+      try {
+        fs.mkdirSync(sessionDbDir, { recursive: true });
+        switchDb(sessionDbPath);
+      } catch (err) {
+        console.error(`[bootstrap] Failed to switch DB: ${err}`);
+      }
+    }
+
+    createSession(sessionId, model, cwd);
+    setManagedSessionId(sessionId);
+    setWaitingForSessionStart(false);
+    console.log(`[bootstrap] Created session ${sessionId} (model: ${model}, cwd: ${cwd})`);
+  } catch (err) {
+    // Fall back: just unblock the gate so hooks can flow
+    console.error(`[bootstrap] Failed to parse tmux pane: ${err}`);
+    setWaitingForSessionStart(false);
+  }
 }
 
 function getLocalIP(): string {

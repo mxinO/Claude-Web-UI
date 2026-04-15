@@ -1,4 +1,7 @@
 import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 export const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
 export const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
@@ -7,13 +10,19 @@ const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 export function sendInput(text: string): void {
-  // Send the text followed by Enter to Claude Code's TUI.
-  // Note: -l (literal) mode doesn't work with Claude Code's input handler.
-  // Instead, send the text as a single quoted argument + Enter.
-  execSync(
-    `tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} ${shellEscape(text)} Enter`,
-    execOpts
-  );
+  // Use tmux load-buffer + paste-buffer for reliable text delivery.
+  // send-keys (with or without -l) can misinterpret key names or drop
+  // characters for certain inputs. load-buffer/paste-buffer sends the
+  // exact bytes without any interpretation.
+  const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}.tmp`);
+  try {
+    fs.writeFileSync(tmpFile, text);
+    execSync(`tmux load-buffer ${shellEscape(tmpFile)}`, execOpts);
+    execSync(`tmux paste-buffer -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+    execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
 }
 
 export function getSessionStatus(): { alive: boolean; session: string } {

@@ -374,7 +374,7 @@ export function registerApiRoutes(app: Express): void {
       // -S -500: up to 500 lines of scrollback. The regex search is fast (< 1ms);
       // the exec overhead dominates, not the data size. This is acceptable.
       const headerCapture = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 5`,
+        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
         { encoding: 'utf-8', timeout: 3000 }
       );
       const statusCapture = execSync(
@@ -382,11 +382,11 @@ export function registerApiRoutes(app: Express): void {
         { encoding: 'utf-8', timeout: 3000 }
       );
 
-      // Model: "Opus 4.6 (1M context)"
+      // Model: "Opus 4.6" or "Sonnet 4.6 (1M context)"
       const modelMatch = headerCapture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
-      // CWD line looks like: "  ▘▘ ▝▝    /home/mxin"
-      const cwdMatch = headerCapture.match(/^\s+.*\s+(\/\S+)\s*$/m);
-      // Effort: "medium effort" or "with high effort"
+      // CWD: a line inside the box containing an absolute path, e.g. "│  /home/user/project  │"
+      const cwdMatch = headerCapture.match(/│\s+(\/\S+)\s+│/);
+      // Effort: "with high effort"
       const effortMatch = headerCapture.match(/with\s+(low|medium|high|max)\s+effort/i);
       // Permission mode from status bar: "bypass permissions on" or "plan mode on" or "default" etc.
       let permissionMode: string | null = null;
