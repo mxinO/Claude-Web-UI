@@ -238,10 +238,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
             "UPDATE permission_requests SET decision = 'allow', decided_at = datetime('now'), response_json = ? WHERE decision = 'pending'"
           ).run(allowJson);
 
-          // If DB is empty, import history from Claude's JSONL transcript
-          const eventCount = (getDb().prepare('SELECT COUNT(*) as cnt FROM events').get() as { cnt: number }).cnt;
-          if (eventCount === 0) {
-            const jsonlPath = path.join(path.dirname(sessionDbPath), `${session_id}.jsonl`);
+          // Import history from Claude's JSONL transcript.
+          // Always re-import: the JSONL is the source of truth and may have
+          // grown since the last time we saw this session. Wipe stale events first.
+          const jsonlPath = path.join(path.dirname(sessionDbPath), `${session_id}.jsonl`);
+          if (fs.existsSync(jsonlPath)) {
+            getDb().prepare('DELETE FROM events WHERE session_id = ?').run(session_id);
+            getDb().prepare('DELETE FROM sessions WHERE id = ?').run(session_id);
             importFromJsonl(jsonlPath, session_id, cwd);
           }
         } catch (err) {
