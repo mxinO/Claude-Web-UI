@@ -8,14 +8,14 @@ import { initDb, createSession, switchDb } from './db.js';
 import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.js';
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
-import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION as TMUX_SESS, TMUX_PANE } from './tmux.js';
+import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
+import { addAllowedRoot } from './api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3001');
 const HOST = process.env.HOST || '0.0.0.0';
 const MOCK = process.argv.includes('--mock');
-const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
 // Working directory for Claude — pass as argument after flags, or use CWD
 const CLAUDE_CWD = process.argv.find((a, i) => i > 1 && !a.startsWith('-')) || process.cwd();
 
@@ -52,6 +52,7 @@ server.listen(PORT, HOST, () => {
 
   // Block all hook events until the managed Claude sends its SessionStart
   setWaitingForSessionStart(true);
+  addAllowedRoot(CLAUDE_CWD);
 
   // --- Configure hooks ---
   try {
@@ -65,9 +66,10 @@ server.listen(PORT, HOST, () => {
   // --- Start Claude in tmux ---
   const status = getSessionStatus();
   if (status.alive) {
-    console.log(`tmux session "${TMUX_SESSION}" already running — attaching hooks to it`);
+    console.log(`tmux session "${TMUX_SESSION}" already running — hooks won't apply until Claude is restarted`);
     // Bootstrap: the session already sent SessionStart before we existed.
     // Parse tmux pane to get model/cwd, create a synthetic session so the UI works.
+    // Note: real-time hook events won't flow since this Claude wasn't started with --settings.
     bootstrapExistingSession();
   } else {
     try {
@@ -178,7 +180,7 @@ function setupHooks() {
 function bootstrapExistingSession() {
   try {
     const capture = execSync(
-      `tmux capture-pane -t ${TMUX_SESS}:${TMUX_PANE} -p -S -500 -E 15`,
+      `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
       { encoding: 'utf-8', timeout: 3000 }
     );
     const modelMatch = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+/i);
@@ -206,6 +208,7 @@ function bootstrapExistingSession() {
     createSession(sessionId, model, cwd);
     setManagedSessionId(sessionId);
     setWaitingForSessionStart(false);
+    if (cwd) addAllowedRoot(cwd);
     console.log(`[bootstrap] Created session ${sessionId} (model: ${model}, cwd: ${cwd})`);
   } catch (err) {
     // Fall back: just unblock the gate so hooks can flow

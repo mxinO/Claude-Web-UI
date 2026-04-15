@@ -8,18 +8,23 @@ export const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
 const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout: 5000 };
 
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
+let sendSeq = 0;
 
 export function sendInput(text: string): void {
   // Use tmux load-buffer + paste-buffer for reliable text delivery.
   // send-keys (with or without -l) can misinterpret key names or drop
   // characters for certain inputs. load-buffer/paste-buffer sends the
   // exact bytes without any interpretation.
-  const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}.tmp`);
+  //
+  // Append \n so paste-buffer's trailing-newline acts as Enter.
+  // No separate send-keys Enter needed (avoids double-submit).
+  // Use a named buffer (-b) to avoid colliding with user's clipboard.
+  const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
+  const bufName = 'webui-input';
   try {
-    fs.writeFileSync(tmpFile, text);
-    execSync(`tmux load-buffer ${shellEscape(tmpFile)}`, execOpts);
-    execSync(`tmux paste-buffer -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-    execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+    fs.writeFileSync(tmpFile, text + '\n');
+    execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
+    execSync(`tmux paste-buffer -d -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }

@@ -20,6 +20,15 @@ import { broadcastPermissionDecision } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } from './hooks.js';
 
 
+// Allowed root directories for file access — the CWD and $HOME.
+// Updated dynamically when Claude's CWD changes.
+let allowedRoots: string[] = [process.env.HOME || '/root'];
+
+export function addAllowedRoot(dir: string): void {
+  const resolved = path.resolve(dir);
+  if (!allowedRoots.includes(resolved)) allowedRoots.push(resolved);
+}
+
 function isPathSafe(filePath: string): boolean {
   try {
     const resolved = path.resolve(filePath);
@@ -28,8 +37,10 @@ function isPathSafe(filePath: string): boolean {
     let realPath: string;
     try { realPath = fs.realpathSync(resolved); } catch { realPath = resolved; }
     // Block sensitive paths
-    const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud'];
+    const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.env'];
     if (blocked.some(b => realPath.includes('/' + b + '/') || realPath.endsWith('/' + b))) return false;
+    // Must be under an allowed root (HOME or Claude's CWD)
+    if (!allowedRoots.some(root => realPath.startsWith(root + '/'))) return false;
     return true;
   } catch { return false; }
 }

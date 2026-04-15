@@ -14,6 +14,7 @@ import {
 } from './db.js';
 import type { DbEvent } from './types.js';
 import { startStreaming, stopStreaming } from './streaming.js';
+import { addAllowedRoot } from './api.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
@@ -234,6 +235,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       if (DEBUG) console.log(`[hooks] Managed session set to: ${session_id}`);
     }
     createSession(session_id, model, cwd);
+    if (cwd) addAllowedRoot(cwd);
     res.json({ ok: true });
   });
 
