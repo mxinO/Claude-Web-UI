@@ -369,6 +369,9 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
         }
       }
 
+      // Signal that we sent a message (triggers thinking indicator)
+      window.dispatchEvent(new CustomEvent('claude-message-sent'));
+
       const hist = historyRef.current;
       if (hist[hist.length - 1] !== trimmed) {
         hist.push(trimmed);

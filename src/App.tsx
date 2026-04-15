@@ -22,6 +22,7 @@ export default function App() {
   const [cancelledText, setCancelledText] = useState<string | null>(null);
   const cancelledRef = useRef(false);
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const [waitingForReply, setWaitingForReply] = useState(false);
   const { events, addEvent, removeLastUserMessage, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onQueueChange = useCallback((queue: QueuedMessage[]) => {
@@ -36,12 +37,13 @@ export default function App() {
   }, []);
 
   const onEvent = useCallback((event: TimelineEvent) => {
-    if (event.event_type === 'assistant_message') {
+    if (event.event_type === 'assistant_message' || event.event_type === 'stop') {
       streamingTextRef.current = null;
       setStreamingText(null);
       setStreamingExpanded(false);
       cancelledRef.current = false;
       setCancelledText(null);
+      setWaitingForReply(false);
     }
     if (event.event_type === 'user_message') {
       // New turn — reset cancelled state
@@ -137,15 +139,15 @@ export default function App() {
   const handleCloseDetail = useCallback(() => setModalEvent(null), []);
   const handleReconnectSelect = useCallback((event: TimelineEvent) => setModalEvent(event), []);
 
-  // Thinking state: last event is a RECENT user message AND no streaming yet AND not cancelled.
-  // "Recent" = within 30s. Historical messages (from JSONL import on resume) are old and
-  // should not trigger thinking dots.
-  const isThinking = events.length > 0 && !streamingText && !cancelledRef.current && (() => {
-    const last = events[events.length - 1];
-    if (last.event_type !== 'user_message') return false;
-    const age = Date.now() - new Date(last.timestamp).getTime();
-    return age < 30_000;
-  })();
+  // Set waitingForReply when user sends a message (not on history load)
+  useEffect(() => {
+    const handler = () => setWaitingForReply(true);
+    window.addEventListener('claude-message-sent', handler);
+    return () => window.removeEventListener('claude-message-sent', handler);
+  }, []);
+
+  // Thinking state: only when we actively sent a message and haven't got a reply yet
+  const isThinking = waitingForReply && !streamingText && !cancelledRef.current;
 
   // Running state: thinking, streaming, or a tool is in progress (but not after cancel)
   const isRunning = !cancelledRef.current && (isThinking || !!streamingText || events.some(e => e.event_type === 'tool_running'));
