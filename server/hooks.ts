@@ -20,6 +20,19 @@ import { setClaudeBusy, setSessionIdGetter } from './queue.js';
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
 
+/** Strip system noise from user message text. Task notifications are replaced
+ *  with a short "[Task finished]" note. Returns null if nothing meaningful remains. */
+export function cleanUserMessage(text: string | null): string | null {
+  if (!text) return null;
+  let cleaned = text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<task-notification>[\s\S]*?<\/task-notification>/g, '[Task finished]')
+    .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, '')
+    .trim();
+  if (!cleaned) return null;
+  return cleaned;
+}
+
 export interface BroadcastFns {
   broadcastEvent(sessionId: string, event: DbEvent): void;
   broadcastPermission(sessionId: string, permId: string, eventId: number, toolName: string, toolInput: unknown): void;
@@ -263,7 +276,14 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       return;
     }
     ensureSession(session_id, cwd);
-    const msgText = prompt ?? user_input ?? null;
+    const rawText = prompt ?? user_input ?? null;
+    const msgText = cleanUserMessage(rawText);
+
+    // Pure system noise (system reminders etc.) — don't create a user event
+    if (!msgText) {
+      res.json({ ok: true, filtered: true });
+      return;
+    }
 
     // Check if send-input already created this user_message (optimistic insert).
     // Match by text + recency (within last 60s) to avoid duplicates.
@@ -637,9 +657,10 @@ function importFromJsonl(jsonlPath: string, sessionId: string, cwd?: string): vo
           } else if (typeof msg?.content === 'string') {
             text = msg.content;
           }
-          // Skip system noise
-          if (!text || text.startsWith('<local-command') || text.startsWith('<system-reminder') || text.startsWith('<command-')) continue;
-          insertEvent(sessionId, 'user_message', { message_text: text });
+          // Clean system noise (task notifications, system reminders, etc.)
+          const cleaned = cleanUserMessage(text);
+          if (!cleaned || cleaned.startsWith('<local-command') || cleaned.startsWith('<command-')) continue;
+          insertEvent(sessionId, 'user_message', { message_text: cleaned });
           imported++;
         }
 

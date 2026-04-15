@@ -320,6 +320,12 @@ body {
   padding: 2px 0;
 }
 
+.chat-notification--task {
+  opacity: 0.6;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
 /* ── Input bar ─────────────────────────────────────────────────── */
 
 .input-container {

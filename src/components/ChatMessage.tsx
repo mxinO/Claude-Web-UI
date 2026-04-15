@@ -73,10 +73,19 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
 
   // ── User message ────────────────────────────────────────────
   if (event_type === 'user_message') {
+    const text = event.message_text ?? '';
+    // System-injected task note — render as a subtle inline note, not a user bubble
+    if (text === '[Task finished]') {
+      return (
+        <div className="chat-row chat-row--system">
+          <div className="chat-notification chat-notification--task">Task finished</div>
+        </div>
+      );
+    }
     return (
       <div className="chat-row chat-row--user">
         <div className="chat-bubble chat-bubble--user">
-          <div className="chat-bubble-text">{event.message_text ?? ''}</div>
+          <div className="chat-bubble-text">{text}</div>
           <div className="chat-time">{time}</div>
         </div>
       </div>

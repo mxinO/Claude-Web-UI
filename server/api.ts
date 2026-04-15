@@ -18,7 +18,7 @@ import type { DbPermissionRequest } from './types.js';
 import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
-import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } from './hooks.js';
+import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued } from './queue.js';
 
 
@@ -742,13 +742,14 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
             } else if (typeof msg?.content === 'string') {
               text = msg.content.trim();
             }
-            // Skip system noise: local-command tags, empty, very short
-            if (text && text.length > 2
-                && !text.startsWith('<local-command')
-                && !text.startsWith('<command-')
-                && !text.includes('Bye!')
-                && !text.startsWith('<system-reminder')) {
-              lastUserText = text;
+            // Clean system noise and skip if nothing left
+            const cleaned = cleanUserMessage(text);
+            if (cleaned && cleaned.length > 2
+                && !cleaned.startsWith('<local-command')
+                && !cleaned.startsWith('<command-')
+                && !cleaned.includes('Bye!')
+                && cleaned !== '[Task finished]') {
+              lastUserText = cleaned;
             }
           }
         } catch { /* skip bad lines */ }
