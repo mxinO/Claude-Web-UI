@@ -44,14 +44,11 @@ let managedSessionId: string | null = null;
 // In real mode, we wait for SessionStart before accepting any events.
 // This prevents events from other Claude sessions leaking in during startup.
 let waitingForSessionStart = false;
-// When true, force re-import from JSONL even if DB has events (set by switch-session)
-let forceReimport = false;
 
 export function getManagedSessionId(): string | null { return managedSessionId; }
 export function setManagedSessionId(id: string | null): void { managedSessionId = id; }
 export function isWaitingForSessionStart(): boolean { return waitingForSessionStart; }
 export function setWaitingForSessionStart(val: boolean): void { waitingForSessionStart = val; }
-export function setForceReimport(val: boolean): void { forceReimport = val; }
 
 /** Ensure a session exists, creating one if needed. */
 function ensureSession(sessionId: string, cwd?: string, model?: string): void {
@@ -177,6 +174,35 @@ function getCurrentPermissionMode(): string | null {
   } catch { return null; }
 }
 
+/**
+ * Find the correct DB path for a session by searching existing files first.
+ * This avoids encoding mismatches between our CWD encoding and Claude Code's.
+ */
+function findSessionDbPath(projectsDir: string, sessionId: string, cwd: string): string {
+  const dbName = `${sessionId}.webui.db`;
+  const jsonlName = `${sessionId}.jsonl`;
+
+  try {
+    const dirs = fs.readdirSync(projectsDir);
+
+    // 1. Check if a webui.db already exists for this session
+    for (const dir of dirs) {
+      const candidate = path.join(projectsDir, dir, dbName);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+
+    // 2. Put it next to Claude's JSONL (matches their directory encoding)
+    for (const dir of dirs) {
+      const jsonl = path.join(projectsDir, dir, jsonlName);
+      if (fs.existsSync(jsonl)) return path.join(projectsDir, dir, dbName);
+    }
+  } catch { /* projectsDir doesn't exist yet */ }
+
+  // 3. Fallback: compute path from CWD
+  const projectDirName = cwd.replace(/[^a-zA-Z0-9-]/g, '-');
+  return path.join(projectsDir, projectDirName, dbName);
+}
+
 export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   // Wire up the session ID getter for queue.ts (breaks circular import)
   setSessionIdGetter(() => managedSessionId);
@@ -184,10 +210,15 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   // Middleware: silently drop events from non-managed sessions
   app.use('/hooks', (req: Request, res: Response, next) => {
     const sessionId = req.body?.session_id;
+    const hookName = req.path.replace(/^\//, '');
     // session-start is handled specially (sets managedSessionId), let it through
-    if (req.path === '/session-start') { next(); return; }
+    if (req.path === '/session-start') {
+      console.log(`[hook] ${hookName} session=${sessionId}`);
+      next(); return;
+    }
     // In real mode, drop everything until we've received SessionStart
     if (waitingForSessionStart) {
+      console.log(`[hook] DROPPED ${hookName} (waiting for SessionStart)`);
       res.json({ ok: true, ignored: true });
       return;
     }
@@ -195,8 +226,12 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     if (!managedSessionId) { next(); return; }
     // Filter: only accept events from the managed session
     if (sessionId && sessionId !== managedSessionId) {
+      console.log(`[hook] DROPPED ${hookName} session=${sessionId} (managed=${managedSessionId})`);
       res.json({ ok: true, ignored: true });
       return;
+    }
+    if (hookName === 'stop' || hookName === 'user-prompt') {
+      console.log(`[hook] ${hookName} session=${sessionId}`);
     }
     next();
   });
@@ -220,10 +255,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
 
       // Switch to per-session DB stored alongside Claude's session JSONL
       // Path: ~/.claude/projects/<project-dir>/<session-id>.webui.db
+      // IMPORTANT: Claude Code's directory encoding differs from ours (it preserves
+      // dots/underscores, we replace them with hyphens). To avoid creating duplicate
+      // DBs, search for an existing DB or JSONL by session ID first.
       if (cwd) {
         const homeDir = process.env.HOME || '/root';
-        const projectDirName = cwd.replace(/[^a-zA-Z0-9-]/g, '-');
-        const sessionDbPath = path.join(homeDir, '.claude', 'projects', projectDirName, `${session_id}.webui.db`);
+        const projectsDir = path.join(homeDir, '.claude', 'projects');
+        const sessionDbPath = findSessionDbPath(projectsDir, session_id, cwd);
         try {
           fs.mkdirSync(path.dirname(sessionDbPath), { recursive: true });
           switchDb(sessionDbPath);
@@ -241,17 +279,12 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
             "UPDATE permission_requests SET decision = 'allow', decided_at = datetime('now'), response_json = ? WHERE decision = 'pending'"
           ).run(allowJson);
 
-          // Import from JSONL when DB is empty or on resume (forceReimport).
-          // On resume the JSONL has the full conversation; our DB may be stale.
+          // If DB has no events for this session, import from Claude's JSONL transcript.
+          // Our DB has richer data (permissions, tool details) so don't overwrite it.
           const eventCount = (getDb().prepare(
             'SELECT COUNT(*) as cnt FROM events WHERE session_id = ?'
           ).get(session_id) as { cnt: number }).cnt;
-          if (eventCount === 0 || forceReimport) {
-            if (forceReimport && eventCount > 0) {
-              getDb().prepare('DELETE FROM events WHERE session_id = ?').run(session_id);
-              getDb().prepare('DELETE FROM sessions WHERE id = ?').run(session_id);
-            }
-            forceReimport = false;
+          if (eventCount === 0) {
             const jsonlPath = path.join(path.dirname(sessionDbPath), `${session_id}.jsonl`);
             importFromJsonl(jsonlPath, session_id, cwd);
           }

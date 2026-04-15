@@ -18,7 +18,7 @@ import type { DbPermissionRequest } from './types.js';
 import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
-import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage, setForceReimport } from './hooks.js';
+import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
 import { stopStreaming } from './streaming.js';
 
@@ -172,6 +172,13 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     try {
+      // Verify Claude is actually running in tmux before sending
+      const status = getSessionStatus();
+      if (!status.alive) {
+        res.status(503).json({ error: 'No tmux session — Claude is not running' });
+        return;
+      }
+
       // Slash commands always go directly (they're TUI commands, not prompts)
       if (text.startsWith('/')) {
         sendInput(text);
@@ -189,6 +196,7 @@ export function registerApiRoutes(app: Express): void {
       // Send immediately
       sendInput(text);
       setClaudeBusy(true);
+      console.log(`[send-input] sent ${text.length} chars to tmux`);
 
       // Create user_message event so the UI shows it right away
       const sessionId = getManagedSessionId();
@@ -507,12 +515,12 @@ export function registerApiRoutes(app: Express): void {
       // Reset managed session so hooks attach to the new one
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
-      setForceReimport(true);
 
       // Start Claude with --resume in the session's CWD
       const targetCwd = cwd || process.cwd();
       const __dirname = path.dirname(new URL(import.meta.url).pathname);
       const hooksSettings = path.join(__dirname, '..', 'data', 'hooks-settings.json');
+      console.log(`[switch-session] resuming ${sessionId} in ${targetCwd}`);
       startClaudeSession(`--settings ${hooksSettings} --resume ${sessionId}`, targetCwd);
 
       // Wait until Claude is ready (SessionStart hook fires and sets managedSessionId)
@@ -526,6 +534,8 @@ export function registerApiRoutes(app: Express): void {
       if (!getManagedSessionId()) {
         console.warn('[switch-session] SessionStart hook did not fire within timeout — unblocking hooks');
         setWaitingForSessionStart(false);
+      } else {
+        console.log(`[switch-session] ready, managed=${getManagedSessionId()}`);
       }
 
       res.json({ ok: true, sessionId, cwd: targetCwd, ready: !!getManagedSessionId() });
