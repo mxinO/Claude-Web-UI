@@ -137,10 +137,14 @@ export default function App() {
   const handleCloseDetail = useCallback(() => setModalEvent(null), []);
   const handleReconnectSelect = useCallback((event: TimelineEvent) => setModalEvent(event), []);
 
-  // Thinking state: last event is user message AND no streaming yet AND not cancelled
+  // Thinking state: last event is a RECENT user message AND no streaming yet AND not cancelled.
+  // "Recent" = within 30s. Historical messages (from JSONL import on resume) are old and
+  // should not trigger thinking dots.
   const isThinking = events.length > 0 && !streamingText && !cancelledRef.current && (() => {
     const last = events[events.length - 1];
-    return last.event_type === 'user_message';
+    if (last.event_type !== 'user_message') return false;
+    const age = Date.now() - new Date(last.timestamp).getTime();
+    return age < 30_000;
   })();
 
   // Running state: thinking, streaming, or a tool is in progress (but not after cancel)
