@@ -11,23 +11,18 @@ let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sendSeq = 0;
 
 export function sendInput(text: string): void {
-  // load-buffer + paste-buffer delivers exact bytes without send-keys interpretation issues.
-  // Two modes:
-  //   Single-line: plain paste with trailing \n (acts as Enter to submit)
-  //   Multi-line:  bracketed paste (-p) so newlines stay literal, then Enter to submit
-  const multiline = text.includes('\n');
+  // Always use bracketed paste (-p) so the TUI treats the content as literal
+  // text, not individual key events. Without -p, characters like > or ? in
+  // longer messages can be misinterpreted by Claude Code's Ink-based TUI.
+  // After pasting, send Enter separately to submit.
   const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
   const bufName = 'webui-input';
   try {
-    fs.writeFileSync(tmpFile, multiline ? text : text + '\n');
+    fs.writeFileSync(tmpFile, text);
     execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
-    if (multiline) {
-      execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-      // TUI needs a moment to process the bracketed paste before Enter can submit
-      execSync(`sleep 0.15 && tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
-    } else {
-      execSync(`tmux paste-buffer -d -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-    }
+    execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+    // TUI needs a moment to process the bracketed paste before Enter can submit
+    execSync(`sleep 0.15 && tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
