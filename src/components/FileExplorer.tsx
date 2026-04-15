@@ -21,6 +21,7 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const [loading, setLoading] = useState(false);
   const [viewFile, setViewFile] = useState<{ path: string; content: string } | null>(null);
   const [cwdLabel, setCwdLabel] = useState<string>('');
+  const [cwdFull, setCwdFull] = useState<string>('');
   const loadedRef = useRef(false);
 
   // Load root directory on mount
@@ -35,7 +36,7 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
           const data = await status.json();
           if (data.cwd) {
             cwd = data.cwd;
-            // Show just the last path segment as label
+            setCwdFull(cwd);
             setCwdLabel(cwd.split('/').filter(Boolean).pop() || cwd);
           }
         }
@@ -43,16 +44,6 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
       const items = await loadDir(cwd);
       setRoots(items.map((e) => ({ entry: e, children: null, expanded: false })));
     })();
-  }, []);
-
-  // Reload when session changes (page reload handles this, but also listen for explicit event)
-  useEffect(() => {
-    const handler = () => {
-      loadedRef.current = false;
-      setRoots([]);
-    };
-    window.addEventListener('session-changed', handler);
-    return () => window.removeEventListener('session-changed', handler);
   }, []);
 
   const loadDir = useCallback(async (path: string): Promise<DirEntry[]> => {
@@ -169,7 +160,7 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
     <div className="sidebar-explorer">
       <div className="file-explorer-header">
         <span>Explorer</span>
-        {cwdLabel && <span className="file-explorer-cwd" title={cwdLabel}>{cwdLabel}</span>}
+        {cwdLabel && <span className="file-explorer-cwd" title={cwdFull}>{cwdLabel}</span>}
         {loading && <span className="file-explorer-loading">...</span>}
       </div>
       <div className="file-explorer-tree">

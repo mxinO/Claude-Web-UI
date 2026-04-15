@@ -34,7 +34,8 @@ export default function App() {
   });
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('sidebar-width');
-    return saved ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, parseInt(saved))) : SIDEBAR_DEFAULT;
+    const n = parseInt(saved ?? '', 10);
+    return Number.isNaN(n) ? SIDEBAR_DEFAULT : Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, n));
   });
   const resizingRef = useRef(false);
   const { events, addEvent, removeLastUserMessage, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
@@ -234,93 +235,93 @@ export default function App() {
 
         {/* Main chat area */}
         <div className="main-panel">
-      <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
-        <div className="chat-column">
-          <div ref={sentinelRef} style={{ height: 1 }} />
+          <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
+            <div className="chat-column">
+              <div ref={sentinelRef} style={{ height: 1 }} />
 
-          {hasMore && (
-            <div className="chat-load-more">Loading older messages...</div>
-          )}
+              {hasMore && (
+                <div className="chat-load-more">Loading older messages...</div>
+              )}
 
-          {reconnectSummary && (
-            <ReconnectSummaryWidget
-              summary={reconnectSummary}
-              onSelect={handleReconnectSelect}
-              events={events}
-            />
-          )}
+              {reconnectSummary && (
+                <ReconnectSummaryWidget
+                  summary={reconnectSummary}
+                  onSelect={handleReconnectSelect}
+                  events={events}
+                />
+              )}
 
-          {events.length === 0 && (
-            <div className="chat-empty">Waiting for messages...</div>
-          )}
+              {events.length === 0 && (
+                <div className="chat-empty">Waiting for messages...</div>
+              )}
 
-          {events.map((event) => (
-            <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
-          ))}
+              {events.map((event) => (
+                <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
+              ))}
 
-          {/* Streaming: compact card showing work in progress */}
-          {streamingText && (
-            <StreamingCard
-              text={streamingText}
-              onExpand={() => setStreamingExpanded(true)}
-            />
-          )}
+              {/* Streaming: compact card showing work in progress */}
+              {streamingText && (
+                <StreamingCard
+                  text={streamingText}
+                  onExpand={() => setStreamingExpanded(true)}
+                />
+              )}
 
-          {/* Cancelled: show what was captured before interruption */}
-          {cancelledText && !streamingText && (
-            <div className="chat-row chat-row--assistant">
-              <div
-                className="tool-card tool-card--cancelled"
-                onClick={() => {
-                  setStreamingExpanded(true);
-                }}
-                style={{ cursor: 'pointer' }}
-              >
-                <span className="tool-card-icon">⏹</span>
-                <span className="tool-card-summary">Cancelled — click to see partial response</span>
-              </div>
-            </div>
-          )}
-
-          {/* Thinking dots — only before streaming starts */}
-          {isThinking && <ThinkingIndicator />}
-
-          {/* Queued messages */}
-          {messageQueue.map((msg) => (
-            <div key={msg.id} className="chat-row chat-row--user">
-              <div className="queued-message">
-                <div className="queued-badge">Queued</div>
-                <div className="queued-text">{msg.text}</div>
-                <div className="queued-actions">
-                  <button
-                    className="queued-btn queued-btn--edit"
-                    title="Edit — put back in input"
-                    onClick={async () => {
-                      await fetch(`/api/queue/${msg.id}`, { method: 'DELETE' });
-                      window.dispatchEvent(new CustomEvent('insert-input-text', {
-                        detail: { text: msg.text }
-                      }));
+              {/* Cancelled: show what was captured before interruption */}
+              {cancelledText && !streamingText && (
+                <div className="chat-row chat-row--assistant">
+                  <div
+                    className="tool-card tool-card--cancelled"
+                    onClick={() => {
+                      setStreamingExpanded(true);
                     }}
+                    style={{ cursor: 'pointer' }}
                   >
-                    Edit
-                  </button>
-                  <button
-                    className="queued-btn queued-btn--cancel"
-                    title="Cancel — remove from queue"
-                    onClick={() => fetch(`/api/queue/${msg.id}`, { method: 'DELETE' })}
-                  >
-                    Cancel
-                  </button>
+                    <span className="tool-card-icon">⏹</span>
+                    <span className="tool-card-summary">Cancelled — click to see partial response</span>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Thinking dots — only before streaming starts */}
+              {isThinking && <ThinkingIndicator />}
+
+              {/* Queued messages */}
+              {messageQueue.map((msg) => (
+                <div key={msg.id} className="chat-row chat-row--user">
+                  <div className="queued-message">
+                    <div className="queued-badge">Queued</div>
+                    <div className="queued-text">{msg.text}</div>
+                    <div className="queued-actions">
+                      <button
+                        className="queued-btn queued-btn--edit"
+                        title="Edit — put back in input"
+                        onClick={async () => {
+                          await fetch(`/api/queue/${msg.id}`, { method: 'DELETE' });
+                          window.dispatchEvent(new CustomEvent('insert-input-text', {
+                            detail: { text: msg.text }
+                          }));
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="queued-btn queued-btn--cancel"
+                        title="Cancel — remove from queue"
+                        onClick={() => fetch(`/api/queue/${msg.id}`, { method: 'DELETE' })}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div ref={bottomRef} />
             </div>
-          ))}
+          </div>
 
-          <div ref={bottomRef} />
-        </div>
-      </div>
-
-      <InputBox isRunning={isRunning} />
+          <InputBox isRunning={isRunning} />
         </div>{/* end .main-panel */}
       </div>{/* end .app-body */}
 

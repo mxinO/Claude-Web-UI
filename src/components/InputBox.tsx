@@ -87,8 +87,6 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
   const [acIndex, setAcIndex] = useState(0);
   const acVisible = acMode !== 'none' && acItems.length > 0;
 
-  // File explorer state
-
   // Track @ position for file autocomplete
   const atPosRef = useRef(-1);
 
