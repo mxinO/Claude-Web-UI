@@ -103,7 +103,18 @@ export default function App() {
   // Auto-scroll to bottom on new events
   useEffect(() => {
     const newCount = events.length;
-    if (newCount === prevEventCountRef.current) return;
+    const prevCount = prevEventCountRef.current;
+    if (newCount === prevCount) return;
+    // Initial load (0 → N): always scroll instantly, reset scroll tracking
+    if (prevCount === 0 && newCount > 0) {
+      userScrolledUpRef.current = false;
+      prevEventCountRef.current = newCount;
+      // Use requestAnimationFrame so DOM has laid out the content
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+      });
+      return;
+    }
     prevEventCountRef.current = newCount;
     if (!userScrolledUpRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
