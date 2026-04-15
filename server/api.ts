@@ -703,6 +703,7 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
     let model: string | null = null;
     let preview: string | null = null;
     let sessionName: string | null = null;
+    let sessionCwd: string | null = null;
     let lastUserText: string | null = null;
 
     try {
@@ -712,6 +713,11 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
       for (const line of lines) {
         try {
           const entry = JSON.parse(line);
+
+          // Pick up CWD from early entries (system or any entry with cwd)
+          if (!sessionCwd && entry.cwd) {
+            sessionCwd = entry.cwd;
+          }
 
           // Pick up session name if present
           if (entry.sessionName && !sessionName) {
@@ -753,9 +759,6 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
         preview = lastUserText.slice(-80);
       }
     } catch { /* skip unreadable */ }
-
-    // Derive CWD from project dir name: -home-mxin → /home/mxin
-    const sessionCwd = file.projDir.replace(/^-/, '/').replace(/-/g, '/');
 
     sessions.push({
       id: sessionId,
