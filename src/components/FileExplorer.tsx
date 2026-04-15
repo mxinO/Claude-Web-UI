@@ -24,32 +24,10 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const [cwdFull, setCwdFull] = useState<string>('');
   const loadedRef = useRef(false);
 
-  // Load root directory on mount
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-    (async () => {
-      let cwd = '.';
-      try {
-        const status = await fetch('/api/current-status');
-        if (status.ok) {
-          const data = await status.json();
-          if (data.cwd) {
-            cwd = data.cwd;
-            setCwdFull(cwd);
-            setCwdLabel(cwd.split('/').filter(Boolean).pop() || cwd);
-          }
-        }
-      } catch { /* fall back to '.' */ }
-      const items = await loadDir(cwd);
-      setRoots(items.map((e) => ({ entry: e, children: null, expanded: false })));
-    })();
-  }, []);
-
-  const loadDir = useCallback(async (path: string): Promise<DirEntry[]> => {
+  const loadDir = useCallback(async (dirPath: string): Promise<DirEntry[]> => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/ls?path=${encodeURIComponent(path)}`);
+      const res = await fetch(`/api/ls?path=${encodeURIComponent(dirPath)}&_t=${Date.now()}`);
       if (!res.ok) return [];
       const data = await res.json();
       return data.items || [];
@@ -59,6 +37,30 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
       setLoading(false);
     }
   }, []);
+
+  const refreshRoot = useCallback(async () => {
+    let cwd = '.';
+    try {
+      const status = await fetch('/api/current-status');
+      if (status.ok) {
+        const data = await status.json();
+        if (data.cwd) {
+          cwd = data.cwd;
+          setCwdFull(cwd);
+          setCwdLabel(cwd.split('/').filter(Boolean).pop() || cwd);
+        }
+      }
+    } catch { /* fall back to '.' */ }
+    const items = await loadDir(cwd);
+    setRoots(items.map((e) => ({ entry: e, children: null, expanded: false })));
+  }, [loadDir]);
+
+  // Load root directory on mount
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    refreshRoot();
+  }, [refreshRoot]);
 
   const toggleNode = useCallback(
     async (path: string[], nodes: TreeNode[], setNodes: (n: TreeNode[]) => void) => {
@@ -161,6 +163,14 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
       <div className="file-explorer-header">
         <span>Explorer</span>
         {cwdLabel && <span className="file-explorer-cwd" title={cwdFull}>{cwdLabel}</span>}
+        <button
+          className="file-explorer-refresh"
+          onClick={refreshRoot}
+          disabled={loading}
+          title="Refresh"
+        >
+          ↻
+        </button>
         {loading && <span className="file-explorer-loading">...</span>}
       </div>
       <div className="file-explorer-tree">

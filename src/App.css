@@ -147,6 +147,28 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.file-explorer-refresh {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.file-explorer-refresh:hover {
+  color: var(--text-primary);
+}
+
+.file-explorer-refresh:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ── Header ────────────────────────────────────────────────────── */
