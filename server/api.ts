@@ -24,12 +24,24 @@ import { stopStreaming } from './streaming.js';
 
 
 // Allowed root directories for file access — the CWD and $HOME.
-// Updated dynamically when Claude's CWD changes.
-let allowedRoots: string[] = [process.env.HOME || '/root'];
+// Store both the logical path and the real (symlink-resolved) path so
+// isPathSafe matches regardless of how the path was reached.
+let allowedRoots: string[] = [];
 
-export function addAllowedRoot(dir: string): void {
+function addRoot(dir: string): void {
   const resolved = path.resolve(dir);
   if (!allowedRoots.includes(resolved)) allowedRoots.push(resolved);
+  try {
+    const real = fs.realpathSync(resolved);
+    if (!allowedRoots.includes(real)) allowedRoots.push(real);
+  } catch { /* path doesn't exist yet */ }
+}
+
+// Seed with $HOME
+addRoot(process.env.HOME || '/root');
+
+export function addAllowedRoot(dir: string): void {
+  addRoot(dir);
 }
 
 function isPathSafe(filePath: string): boolean {
