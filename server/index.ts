@@ -124,30 +124,29 @@ function setupHooks() {
 
   try { fs.chmodSync(permissionScript, 0o755); } catch { /* ignore */ }
 
-  const httpHook = (endpoint: string) => [{
+  // Use command-type hooks (curl) instead of http-type hooks for maximum
+  // compatibility — http hooks may not work on all Claude Code versions.
+  const curlHook = (endpoint: string) => [{
     matcher: '',
-    hooks: [{ type: 'http', url: `${serverUrl}/hooks/${endpoint}` }],
+    hooks: [{
+      type: 'command',
+      command: `curl -sf -X POST "${serverUrl}/hooks/${endpoint}" -H "Content-Type: application/json" -d @- || true`,
+    }],
   }];
 
   // Our hooks for the web UI
   const ourHooks: Record<string, unknown[]> = {
-    SessionStart: [{
-      matcher: '',
-      hooks: [{
-        type: 'command',
-        command: `curl -sf -X POST "${serverUrl}/hooks/session-start" -H "Content-Type: application/json" -d @- || true`,
-      }],
-    }],
-    SessionEnd:        httpHook('session-end'),
-    UserPromptSubmit:  httpHook('user-prompt'),
-    Stop:              httpHook('stop'),
-    PreToolUse:        httpHook('pre-tool-use'),
-    PostToolUse:       httpHook('post-tool-use'),
-    SubagentStart:     httpHook('subagent-start'),
-    SubagentStop:      httpHook('subagent-stop'),
-    TaskCreated:       httpHook('task-created'),
-    TaskCompleted:     httpHook('task-completed'),
-    Notification:      httpHook('notification'),
+    SessionStart:      curlHook('session-start'),
+    SessionEnd:        curlHook('session-end'),
+    UserPromptSubmit:  curlHook('user-prompt'),
+    Stop:              curlHook('stop'),
+    PreToolUse:        curlHook('pre-tool-use'),
+    PostToolUse:       curlHook('post-tool-use'),
+    SubagentStart:     curlHook('subagent-start'),
+    SubagentStop:      curlHook('subagent-stop'),
+    TaskCreated:       curlHook('task-created'),
+    TaskCompleted:     curlHook('task-completed'),
+    Notification:      curlHook('notification'),
     PermissionRequest: [{
       matcher: '',
       hooks: [{
