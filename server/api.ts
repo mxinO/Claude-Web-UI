@@ -451,9 +451,19 @@ export function registerApiRoutes(app: Express): void {
       else if (statusCapture.includes('accept edits')) permissionMode = 'acceptEdits';
       else if (statusCapture.includes('default')) permissionMode = 'default';
 
+      // CWD: prefer the session's CWD from DB (reliable, especially after resume
+      // where the tmux header may have scrolled off). Fall back to tmux parsing.
+      let cwd: string | null = null;
+      const managedId = getManagedSessionId();
+      if (managedId) {
+        const sess = getSession(managedId);
+        if (sess?.cwd) cwd = sess.cwd;
+      }
+      if (!cwd && cwdMatch) cwd = cwdMatch[1];
+
       res.json({
         model: modelMatch ? modelMatch[0] : null,
-        cwd: cwdMatch ? cwdMatch[1] : null,
+        cwd,
         effort: effortMatch ? effortMatch[1].toLowerCase() : null,
         permissionMode,
       });
