@@ -205,7 +205,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       // Path: ~/.claude/projects/<project-dir>/<session-id>.webui.db
       if (cwd) {
         const homeDir = process.env.HOME || '/root';
-        const projectDirName = cwd.replace(/\//g, '-');
+        const projectDirName = cwd.replace(/[^a-zA-Z0-9-]/g, '-');
         const sessionDbPath = path.join(homeDir, '.claude', 'projects', projectDirName, `${session_id}.webui.db`);
         try {
           fs.mkdirSync(path.dirname(sessionDbPath), { recursive: true });

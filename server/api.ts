@@ -664,9 +664,12 @@ function listClaudeSessions(cwd?: string): ClaudeSession[] {
   try {
     const allDirs = fs.readdirSync(projectsDir);
     if (cwd) {
-      const cwdDirName = cwd.replace(/\//g, '-');
-      const match = allDirs.find(d => d === cwdDirName);
-      dirsToScan = match ? [match] : allDirs;
+      // Claude Code encodes CWD by replacing all non-alphanumeric chars (except hyphens) with hyphens.
+      // Our webui.db uses slash-only replacement. Try both encodings.
+      const slashEncoded = cwd.replace(/\//g, '-');
+      const claudeEncoded = cwd.replace(/[^a-zA-Z0-9-]/g, '-');
+      const matches = allDirs.filter(d => d === slashEncoded || d === claudeEncoded);
+      dirsToScan = matches.length > 0 ? matches : allDirs;
     } else {
       dirsToScan = allDirs;
     }

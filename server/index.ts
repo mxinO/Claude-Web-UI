@@ -194,7 +194,7 @@ function bootstrapExistingSession() {
     // Switch to per-session DB if we have a CWD
     if (cwd) {
       const homeDir = process.env.HOME || '/root';
-      const projectDirName = cwd.replace(/\//g, '-');
+      const projectDirName = cwd.replace(/[^a-zA-Z0-9-]/g, '-');
       const sessionDbDir = path.join(homeDir, '.claude', 'projects', projectDirName);
       const sessionDbPath = path.join(sessionDbDir, `${sessionId}.webui.db`);
       try {
