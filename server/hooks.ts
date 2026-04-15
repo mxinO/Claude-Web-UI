@@ -47,6 +47,7 @@ let waitingForSessionStart = false;
 
 export function getManagedSessionId(): string | null { return managedSessionId; }
 export function setManagedSessionId(id: string | null): void { managedSessionId = id; }
+export function isWaitingForSessionStart(): boolean { return waitingForSessionStart; }
 export function setWaitingForSessionStart(val: boolean): void { waitingForSessionStart = val; }
 
 /** Ensure a session exists, creating one if needed. */

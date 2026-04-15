@@ -9,7 +9,7 @@ import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
-import { setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
+import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
 import { addAllowedRoot } from './api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,6 +75,13 @@ server.listen(PORT, HOST, () => {
     try {
       startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD);
       console.log(`Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
+      // Safety: if SessionStart hook doesn't fire within 30s, unblock hooks
+      setTimeout(() => {
+        if (isWaitingForSessionStart()) {
+          console.warn('SessionStart hook did not fire within 30s — unblocking hooks');
+          setWaitingForSessionStart(false);
+        }
+      }, 30_000);
     } catch (err) {
       console.error('Failed to start Claude tmux session:', err);
       console.error(`You can start it manually: tmux new-session -d -s ${TMUX_SESSION} -c "${CLAUDE_CWD}" "claude"`);

@@ -19,7 +19,8 @@ import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
-import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued } from './queue.js';
+import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
+import { stopStreaming } from './streaming.js';
 
 
 // Allowed root directories for file access — the CWD and $HOME.
@@ -210,7 +211,6 @@ export function registerApiRoutes(app: Express): void {
   router.post('/interrupt', async (_req, res) => {
     try {
       // Stop streaming poll first
-      const { stopStreaming } = await import('./streaming.js');
       stopStreaming();
       // Send Escape to tmux to interrupt
       execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
@@ -466,6 +466,8 @@ export function registerApiRoutes(app: Express): void {
   // POST /api/reset-session — reset session tracking (after /resume)
   router.post('/reset-session', (_req, res) => {
     try {
+      stopStreaming();
+      resetQueue();
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
       res.json({ ok: true });
@@ -482,6 +484,10 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     try {
+      // Reset all transient state before killing the old session
+      stopStreaming();
+      resetQueue();
+
       // Kill current Claude
       stopClaudeSession();
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -501,6 +507,12 @@ export function registerApiRoutes(app: Express): void {
       for (let i = 0; i < 40; i++) {
         await new Promise(resolve => setTimeout(resolve, 500));
         if (getManagedSessionId()) break;
+      }
+
+      // If SessionStart never fired, unblock hooks anyway so the UI isn't stuck
+      if (!getManagedSessionId()) {
+        console.warn('[switch-session] SessionStart hook did not fire within timeout — unblocking hooks');
+        setWaitingForSessionStart(false);
       }
 
       res.json({ ok: true, sessionId, cwd: targetCwd, ready: !!getManagedSessionId() });

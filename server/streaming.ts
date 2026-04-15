@@ -23,7 +23,11 @@ let activeSessionId: string | null = null;
  * Called when a UserPromptSubmit hook fires.
  */
 export function startStreaming(sessionId: string): void {
-  if (polling) return; // already polling
+  if (polling) {
+    // If polling for a different session, stop and restart for the new one
+    if (activeSessionId === sessionId) return;
+    stopStreaming();
+  }
   polling = true;
   activeSessionId = sessionId;
   lastText = '';

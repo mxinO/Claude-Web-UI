@@ -18,6 +18,16 @@ export function setSessionIdGetter(fn: () => string | null): void { sessionIdGet
 
 export function isClaudeBusy(): boolean { return claudeBusy; }
 
+/** Hard reset: clear busy flag and discard all queued messages. Use on session switch. */
+export function resetQueue(): void {
+  claudeBusy = false;
+  const sessionId = sessionIdGetter();
+  for (const msg of queue) {
+    if (sessionId) broadcast(sessionId, 'queue_remove', { id: msg.id });
+  }
+  queue = [];
+}
+
 export function setClaudeBusy(busy: boolean): void {
   if (busy) {
     claudeBusy = true;
