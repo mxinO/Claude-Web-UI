@@ -11,23 +11,23 @@ let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sendSeq = 0;
 
 export function sendInput(text: string): void {
-  // Use tmux load-buffer + paste-buffer with bracketed paste (-p) for
-  // reliable multi-line text delivery. Without -p, each \n is interpreted
-  // as Enter, splitting multi-line messages into separate submissions.
-  // With -p, the entire text is pasted as a single input.
-  //
-  // Since -p wraps content in bracketed-paste sequences (\e[200~...\e[201~),
-  // newlines inside are literal. Claude Code's TUI shows a "[Pasted text]"
-  // preview for bracketed pastes — Enter confirms and submits, but needs
-  // a brief delay after paste for the TUI to process the paste event.
+  // load-buffer + paste-buffer delivers exact bytes without send-keys interpretation issues.
+  // Two modes:
+  //   Single-line: plain paste with trailing \n (acts as Enter to submit)
+  //   Multi-line:  bracketed paste (-p) so newlines stay literal, then Enter to submit
+  const multiline = text.includes('\n');
   const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
   const bufName = 'webui-input';
   try {
-    fs.writeFileSync(tmpFile, text);
+    fs.writeFileSync(tmpFile, multiline ? text : text + '\n');
     execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
-    execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-    // Delay for TUI to process the bracketed paste before sending Enter
-    execSync(`sleep 0.15 && tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+    if (multiline) {
+      execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+      // TUI needs a moment to process the bracketed paste before Enter can submit
+      execSync(`sleep 0.15 && tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+    } else {
+      execSync(`tmux paste-buffer -d -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+    }
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
