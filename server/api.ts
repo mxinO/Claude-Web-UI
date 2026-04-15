@@ -42,8 +42,8 @@ function isPathSafe(filePath: string): boolean {
     // Block sensitive paths
     const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.env'];
     if (blocked.some(b => realPath.includes('/' + b + '/') || realPath.endsWith('/' + b))) return false;
-    // Must be under an allowed root (HOME or Claude's CWD)
-    if (!allowedRoots.some(root => realPath.startsWith(root + '/'))) return false;
+    // Must be under (or equal to) an allowed root (HOME or Claude's CWD)
+    if (!allowedRoots.some(root => realPath === root || realPath.startsWith(root + '/'))) return false;
     return true;
   } catch { return false; }
 }
