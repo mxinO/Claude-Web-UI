@@ -23,6 +23,7 @@ Claude Code is a powerful CLI tool, but sometimes you want a browser-based inter
 - **`/btw` Support** — side questions shown as floating toast popups
 - **Permission Control** — approve/deny tool calls from the browser
 - **Reconnection** — survives network drops, browser closes, and device switches. Claude keeps running in tmux; the UI reconnects and shows a summary of missed events (edits, commands, agent activity)
+- **Token Auth** — random access token generated each start, cookie-based session, `--no-auth` to disable
 - **Light/Dark Theme** — toggle via sun/moon button in header
 - **Status Bar** — shows model, permission mode, effort level, CWD, connection status
 
@@ -63,7 +64,14 @@ git clone https://github.com/mxinO/Claude-Web-UI.git && cd Claude-Web-UI && ./st
 ./start.sh --host 0.0.0.0 --port 8080 /path/to/project
 ```
 
-Then open `http://localhost:3001` in your browser (or use SSH port forwarding for remote access: `ssh -L 3001:localhost:3001 your-server`).
+The server prints a URL with an access token to the console — click or copy-paste it to authenticate:
+
+```
+Open in browser: http://localhost:3001?token=abc123...
+  Access token: abc123...
+```
+
+For remote access, use SSH port forwarding: `ssh -L 3001:localhost:3001 your-server`
 
 The `start.sh` script auto-detects first run and handles `npm install` + build. Subsequent starts are instant.
 
@@ -73,6 +81,7 @@ The `start.sh` script auto-detects first run and handles `npm install` + build. 
 # Using npm directly
 npm start                                          # default: localhost:3001
 npm start -- --host 0.0.0.0 --port 9999            # custom host/port
+npm start -- --no-auth                              # disable authentication
 npm start -- /path/to/project                       # specific CWD
 npm run start:mock                                  # mock mode (no Claude, for UI testing)
 ```
@@ -176,8 +185,8 @@ npm run build
 
 This is a **personal development tool**, not a production service. Be aware of:
 
-- **Network exposure** — The server binds to `localhost` by default (safe for SSH port forwarding). If you use `--host 0.0.0.0`, anyone on the same network can access the UI, send commands to Claude, and run shell commands via `!`. Use a firewall to restrict access when binding to all interfaces.
-- **No authentication** — There is no login or auth layer. All visitors have full access.
+- **Network exposure** — The server binds to `localhost` by default (safe for SSH port forwarding). If you use `--host 0.0.0.0`, the server is accessible on the network but protected by a random access token (generated each start, printed to console). Use `--no-auth` to disable authentication if not needed.
+- **Token authentication** — Auth uses a random token set as an httpOnly cookie. The token changes every server restart. Hook endpoints are restricted to localhost. This is lightweight protection for a dev tool, not a production auth system.
 - **Permission approval** — The permission control UI (approve/deny tool calls) works but has **not been extensively tested** across all Claude Code versions and edge cases. Treat it as a convenience, not a security boundary. When running with elevated permission modes (`auto`, `bypassPermissions`), Claude acts without asking.
 - **Shell execution** — The `!command` feature runs commands directly on the host as the server's user. Interactive commands are blocked by a best-effort blocklist, and there is a 30-second timeout, but this is not a sandbox.
 - **File access** — The file explorer and `@` autocomplete only block a small set of sensitive dotfiles (`.ssh`, `.gnupg`, `.aws`, `.env`). All other files readable by the server process are accessible.
