@@ -18,15 +18,16 @@ export function sendInput(text: string): void {
   //
   // Since -p wraps content in bracketed-paste sequences (\e[200~...\e[201~),
   // newlines inside are literal. Claude Code's TUI shows a "[Pasted text]"
-  // preview for bracketed pastes — first Enter confirms/expands the paste,
-  // second Enter submits the prompt.
+  // preview for bracketed pastes — Enter confirms and submits, but needs
+  // a brief delay after paste for the TUI to process the paste event.
   const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
   const bufName = 'webui-input';
   try {
     fs.writeFileSync(tmpFile, text);
     execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
     execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-    execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter Enter`, execOpts);
+    // Delay for TUI to process the bracketed paste before sending Enter
+    execSync(`sleep 0.15 && tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
