@@ -320,6 +320,40 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
     if (!trimmed) return;
     setError('');
 
+    // ! shell command — run directly on server
+    if (trimmed.startsWith('!')) {
+      const command = trimmed.slice(1).trim();
+      if (!command) { setError('Usage: ! <command>'); return; }
+      setValue('');
+      setError('Running...');
+      try {
+        const res = await fetch('/api/exec', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || `Error ${res.status}`);
+          return;
+        }
+        setError('');
+        const output = [data.stdout, data.stderr].filter(Boolean).join('\n');
+        window.dispatchEvent(new CustomEvent('bash-output', {
+          detail: { command, output, exitCode: data.exitCode, killed: data.killed, cwd: data.cwd },
+        }));
+      } catch (err) {
+        setError(`Exec failed: ${err}`);
+      }
+      const hist = historyRef.current;
+      if (hist[hist.length - 1] !== trimmed) {
+        hist.push(trimmed);
+        if (hist.length > MAX_HISTORY) hist.shift();
+      }
+      historyIndexRef.current = -1;
+      return;
+    }
+
     // /btw side questions — special handling with floating toast response
     if (trimmed.startsWith('/btw ')) {
       setValue('');

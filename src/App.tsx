@@ -88,6 +88,32 @@ export default function App() {
     return () => window.removeEventListener('btw-response', handler);
   }, []);
 
+  // Listen for ! bash command output
+  const bashIdRef = useRef(-1000);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+      const id = bashIdRef.current--;
+      addEvent({
+        id,
+        session_id: session?.id ?? '',
+        timestamp: new Date().toISOString(),
+        event_type: 'bash_output',
+        agent_id: null,
+        agent_type: null,
+        tool_name: 'bash',
+        tool_input: JSON.stringify({ command: detail.command, exitCode: detail.exitCode, killed: detail.killed }),
+        tool_response: null,
+        message_text: detail.output || '',
+        status: detail.exitCode === 0 ? 'success' : 'error',
+        file_before: null,
+      });
+    };
+    window.addEventListener('bash-output', handler);
+    return () => window.removeEventListener('bash-output', handler);
+  }, [addEvent, session]);
+
   // Listen for interrupt (stop button)
   useEffect(() => {
     const handler = (e: Event) => {

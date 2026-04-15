@@ -15,7 +15,7 @@ import {
   getDb,
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
-import { execSync } from 'child_process';
+import { exec, execSync, ChildProcess } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
@@ -610,6 +610,64 @@ export function registerApiRoutes(app: Express): void {
     } catch (err) {
       res.status(500).json({ error: `Failed to list recent files: ${err}` });
     }
+  });
+
+  // POST /api/exec — run a shell command in Claude's CWD (one at a time)
+  let activeExec: ChildProcess | null = null;
+  router.post('/exec', (req, res) => {
+    const command = req.body?.command;
+    if (!command || typeof command !== 'string') {
+      res.status(400).json({ error: 'Missing command' });
+      return;
+    }
+    if (activeExec) {
+      res.status(409).json({ error: 'A command is already running' });
+      return;
+    }
+
+    // Block commands that require a TTY / interactive input
+    const firstWord = command.trim().split(/\s+/)[0];
+    const interactive = new Set([
+      'less', 'more', 'vim', 'vi', 'nvim', 'nano', 'emacs',
+      'top', 'htop', 'btop', 'watch', 'tmux', 'screen',
+      'ssh', 'ftp', 'sftp', 'telnet', 'python', 'python3',
+      'node', 'irb', 'ghci', 'julia', 'R', 'mysql', 'psql',
+      'mongo', 'redis-cli', 'gdb', 'lldb',
+    ]);
+    if (interactive.has(firstWord)) {
+      res.status(400).json({ error: `"${firstWord}" requires a terminal — not supported here` });
+      return;
+    }
+
+    const cwd = getClaudeCwd();
+    const child = exec(command, {
+      cwd,
+      timeout: 30000,
+      maxBuffer: 1024 * 1024,
+      env: { ...process.env, TERM: 'dumb', PAGER: 'cat', GIT_PAGER: 'cat', MANPAGER: 'cat' },
+    }, (err, stdout, stderr) => {
+      activeExec = null;
+      if (res.destroyed) return; // client already gone
+      const exitCode = err
+        ? (typeof (err as any).code === 'number' ? (err as any).code : 1)
+        : 0;
+      const killed = !!(err && (err as { killed?: boolean }).killed);
+      res.json({ stdout, stderr, exitCode, killed, cwd });
+    });
+    activeExec = child;
+
+    // Kill child if client disconnects before response is sent
+    res.on('close', () => {
+      if (!res.writableFinished && activeExec === child) {
+        activeExec = null;
+        let exited = false;
+        child.on('exit', () => { exited = true; clearTimeout(escalationTimer); });
+        child.kill('SIGTERM');
+        const escalationTimer = setTimeout(() => {
+          if (!exited) child.kill('SIGKILL');
+        }, 2000);
+      }
+    });
   });
 
   app.use('/api', router);

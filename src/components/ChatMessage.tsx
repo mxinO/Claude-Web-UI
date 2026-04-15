@@ -229,6 +229,34 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
     );
   }
 
+  // ── Bash output (! command) ─────────────────────────────────
+  if (event_type === 'bash_output') {
+    const input = parseJSON(event.tool_input);
+    const cmd = (input.command as string) || '';
+    const output = event.message_text ?? '';
+    const exitCode = input.exitCode as number | undefined;
+    const killed = input.killed as boolean | undefined;
+    const isError = (exitCode !== undefined && exitCode !== 0) || killed;
+
+    return (
+      <div className="chat-row chat-row--user">
+        <div className="bash-exec-card">
+          <div className="bash-exec-header">
+            <span className="bash-exec-prompt">$ {cmd}</span>
+            <span className="chat-time">{time}</span>
+            {killed && <span className="bash-exec-status bash-exec-status--error">timeout</span>}
+            {!killed && exitCode !== undefined && exitCode !== 0 && (
+              <span className="bash-exec-status bash-exec-status--error">exit {exitCode}</span>
+            )}
+          </div>
+          {output && (
+            <pre className={`bash-exec-output${isError ? ' bash-exec-output--error' : ''}`}>{output}</pre>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── Notification ───────────────────────────────────────────
   if (event_type === 'notification') {
     return (

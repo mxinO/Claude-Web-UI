@@ -1096,6 +1096,63 @@ body {
   color: var(--text-primary);
 }
 
+/* ── Bash exec output (! command) ────────────────────────────── */
+
+.bash-exec-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  max-width: 85%;
+  font-size: 13px;
+}
+
+.bash-exec-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bash-exec-prompt {
+  font-family: Consolas, 'Courier New', monospace;
+  color: var(--green);
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bash-exec-status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.bash-exec-status--error {
+  background: rgba(244, 71, 71, 0.15);
+  color: var(--red);
+}
+
+.bash-exec-output {
+  margin: 0;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.bash-exec-output--error {
+  border-left: 2px solid var(--red);
+}
+
 /* ── Session picker ───────────────────────────────────────────── */
 
 .session-picker {
