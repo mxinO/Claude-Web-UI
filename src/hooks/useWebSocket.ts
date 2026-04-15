@@ -75,9 +75,14 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false);
       wsRef.current = null;
+      // Auth failure — redirect to login instead of reconnecting
+      if (event.code === 4401) {
+        window.location.reload();
+        return;
+      }
       const delay = 1000 + Math.random() * 4000;
       reconnectTimer.current = setTimeout(connect, delay);
     };

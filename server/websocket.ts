@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import type { Server } from 'http';
+import type { Server, IncomingMessage } from 'http';
 import type { DbEvent } from './types.js';
+import { checkAuthCookie } from './auth.js';
 
 interface Client {
   ws: WebSocket;
@@ -14,7 +15,11 @@ const clients: Set<Client> = new Set();
 export function initWebSocket(server: Server): WebSocketServer {
   wss = new WebSocketServer({ server, path: '/ws' });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req: IncomingMessage) => {
+    if (!checkAuthCookie(req.headers.cookie)) {
+      ws.close(4401, 'Unauthorized');
+      return;
+    }
     const client: Client = { ws, sessionId: null, lastEventId: 0 };
     clients.add(client);
 

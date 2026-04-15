@@ -11,6 +11,7 @@ import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
 import { addAllowedRoot } from './api.js';
+import { initAuth, getAuthToken, checkAuthCookie } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Parse CLI args: --host, --port, --mock, and positional CWD
@@ -18,16 +19,22 @@ function parseArgs(argv: string[]) {
   let host = process.env.HOST || 'localhost';
   let port = parseInt(process.env.PORT || '3001');
   let mock = false;
+  let noAuth = false;
   let cwd = process.cwd();
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--host' && argv[i + 1] && !argv[i + 1].startsWith('-')) { host = argv[++i]; }
     else if (argv[i] === '--port' && argv[i + 1] && !argv[i + 1].startsWith('-')) { port = parseInt(argv[++i]); }
     else if (argv[i] === '--mock') { mock = true; }
+    else if (argv[i] === '--no-auth') { noAuth = true; }
     else if (!argv[i].startsWith('-')) { cwd = argv[i]; }
   }
-  return { host, port, mock, cwd };
+  return { host, port, mock, noAuth, cwd };
 }
-const { host: HOST, port: PORT, mock: MOCK, cwd: CLAUDE_CWD } = parseArgs(process.argv);
+const { host: HOST, port: PORT, mock: MOCK, noAuth: NO_AUTH, cwd: CLAUDE_CWD } = parseArgs(process.argv);
+
+// --- Auth ---
+initAuth(!NO_AUTH);
+const AUTH_TOKEN = getAuthToken();
 
 // --- Database ---
 // Start with a temporary DB; SessionStart hook will switch to the per-session DB
@@ -38,6 +45,78 @@ initDb(tmpDbPath);
 // --- Express + WebSocket ---
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+
+// --- Auth middleware ---
+// Hook endpoints are exempt (they come from Claude's curl hooks on localhost).
+// If auth is enabled, browser requests need a valid token cookie or ?token= query param.
+if (AUTH_TOKEN) {
+  app.use((req, res, next) => {
+    // Allow hook endpoints only from localhost (server-to-server from Claude)
+    if (req.path.startsWith('/hooks/')) {
+      const ip = req.ip || req.socket.remoteAddress || '';
+      if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
+      res.status(403).json({ error: 'Hooks only accepted from localhost' });
+      return;
+    }
+
+    // Check cookie
+    if (checkAuthCookie(req.headers.cookie)) return next();
+
+    // Check query param — set cookie and redirect to clean URL
+    if (req.query.token === AUTH_TOKEN) {
+      res.cookie('webui_token', AUTH_TOKEN, {
+        httpOnly: true,
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      });
+      // Redirect to same path without the token query param
+      const url = new URL(req.originalUrl, `http://${req.headers.host}`);
+      url.searchParams.delete('token');
+      res.redirect(url.pathname + url.search);
+      return;
+    }
+
+    // API requests get 401
+    if (req.path.startsWith('/api/') || req.path === '/ws') {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // Browser requests get a login page
+    res.status(401).send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Claude Web UI — Login</title>
+<style>
+  body { font-family: system-ui; background: #1e1e1e; color: #ccc; display: flex;
+    justify-content: center; align-items: center; height: 100vh; margin: 0; }
+  .login { text-align: center; }
+  h2 { color: #569cd6; margin-bottom: 8px; }
+  p { color: #858585; margin-bottom: 20px; font-size: 14px; }
+  input { padding: 8px 12px; border-radius: 4px; border: 1px solid #3e3e42;
+    background: #252526; color: #ccc; font-size: 16px; width: 300px; }
+  button { padding: 8px 20px; border-radius: 4px; border: none;
+    background: #569cd6; color: #fff; font-size: 14px; cursor: pointer; margin-left: 8px; }
+  button:hover { background: #4a8cc7; }
+  .error { color: #f44747; margin-top: 10px; display: none; font-size: 13px; }
+</style></head>
+<body><div class="login">
+  <h2>Claude Web UI</h2>
+  <p>Enter the access token from the server console</p>
+  <form onsubmit="go(event)">
+    <input id="t" type="text" placeholder="Paste token here" autofocus>
+    <button type="submit">Enter</button>
+  </form>
+  <div class="error" id="err">Invalid token</div>
+</div>
+<script>
+function go(e) {
+  e.preventDefault();
+  const t = document.getElementById('t').value.trim();
+  if (t) window.location.href = '/?token=' + encodeURIComponent(t);
+  else { document.getElementById('err').style.display = 'block'; }
+}
+</script></body></html>`);
+  });
+}
 
 registerHookRoutes(app, { broadcastEvent, broadcastPermission });
 registerApiRoutes(app);
@@ -98,7 +177,15 @@ server.listen(PORT, HOST, () => {
     }
   }
 
-  console.log(`\nOpen in browser: http://${HOST === '0.0.0.0' ? getLocalIP() : HOST}:${PORT}`);
+  const displayHost = HOST === '0.0.0.0' ? getLocalIP() : HOST;
+  const baseUrl = `http://${displayHost}:${PORT}`;
+  if (AUTH_TOKEN) {
+    console.log(`\nOpen in browser: ${baseUrl}?token=${AUTH_TOKEN}`);
+    console.log(`  Access token: ${AUTH_TOKEN}`);
+    console.log(`  (use --no-auth to disable authentication)`);
+  } else {
+    console.log(`\nOpen in browser: ${baseUrl}`);
+  }
 });
 
 // --- Graceful shutdown ---

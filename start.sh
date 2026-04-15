@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code Web UI — one-command start
-# Usage: ./start.sh [--host HOST] [--port PORT] [working-directory]
+# Usage: ./start.sh [--host HOST] [--port PORT] [--no-auth] [working-directory]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -16,7 +16,8 @@ while [[ $# -gt 0 ]]; do
     --host) [[ $# -ge 2 ]] || { echo "Error: --host requires a value"; exit 1; }; HOST="$2"; shift 2 ;;
     --port) [[ $# -ge 2 ]] || { echo "Error: --port requires a value"; exit 1; }; PORT="$2"; shift 2 ;;
     --mock) MOCK=1; shift ;;
-    -*) echo "Unknown option: $1"; echo "Usage: ./start.sh [--host HOST] [--port PORT] [working-directory]"; exit 1 ;;
+    --no-auth) NO_AUTH=1; shift ;;
+    -*) echo "Unknown option: $1"; echo "Usage: ./start.sh [--host HOST] [--port PORT] [--no-auth] [working-directory]"; exit 1 ;;
     *) CWD="$1"; shift ;;
   esac
 done
@@ -92,7 +93,8 @@ echo ""
 
 # Start server and record PID
 EXTRA_ARGS=""
-[ "${MOCK:-}" = "1" ] && EXTRA_ARGS="--mock"
+[ "${MOCK:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --mock"
+[ "${NO_AUTH:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --no-auth"
 npx tsx server/index.ts --host "$HOST" --port "$PORT" $EXTRA_ARGS "$CWD" &
 SERVER_PID=$!
 echo "$SERVER_PID" > "$PID_FILE"
