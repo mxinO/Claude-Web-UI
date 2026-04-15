@@ -191,11 +191,25 @@ export default function App() {
   const handleCloseDetail = useCallback(() => setModalEvent(null), []);
   const handleReconnectSelect = useCallback((event: TimelineEvent) => setModalEvent(event), []);
 
-  // Set waitingForReply when user sends a message (not on history load)
+  // Set waitingForReply when user sends a message and scroll to bottom
   useEffect(() => {
-    const handler = () => setWaitingForReply(true);
+    const handler = () => {
+      setWaitingForReply(true);
+      userScrolledUpRef.current = false;
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+    const scrollToBottom = () => {
+      userScrolledUpRef.current = false;
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      });
+    };
     window.addEventListener('claude-message-sent', handler);
-    return () => window.removeEventListener('claude-message-sent', handler);
+    window.addEventListener('bash-output', scrollToBottom);
+    return () => {
+      window.removeEventListener('claude-message-sent', handler);
+      window.removeEventListener('bash-output', scrollToBottom);
+    };
   }, []);
 
   // Sidebar resize
