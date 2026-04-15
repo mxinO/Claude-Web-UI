@@ -1,6 +1,6 @@
 # Claude Code Web UI
 
-A lightweight web-based companion for [Claude Code](https://claude.ai/code). The backend is just a Claude Code interactive session running in tmux — no custom AI server, no API keys, no proxy. Any tool, MCP server, or slash command available in Claude Code works here too. Accessible from any browser on the network.
+A lightweight web-based companion for [Claude Code](https://claude.ai/code). The backend is just a Claude Code interactive session running in tmux — no custom AI server, no API keys, no proxy. Any tool, MCP server, or slash command available in Claude Code works here too. Access it via SSH port forwarding or bind to a custom host/port.
 
 ## Why This Exists
 
@@ -29,7 +29,7 @@ Claude Code is a powerful CLI tool, but sometimes you want a browser-based inter
 ## How It Works
 
 ```
-Browser (0.0.0.0:3001)
+Browser (localhost:3001)
     |  WebSocket
     v
 Node.js Server
@@ -53,11 +53,17 @@ The server manages a Claude Code process inside a tmux session. Claude Code hook
 # One-liner: clone + install + build + start
 git clone https://github.com/mxinO/Claude-Web-UI.git && cd Claude-Web-UI && ./start.sh
 
-# Or with a specific working directory
+# With a specific working directory
 ./start.sh /path/to/project
+
+# Custom host and port
+./start.sh --host 0.0.0.0 --port 9999
+
+# Combine options
+./start.sh --host 0.0.0.0 --port 8080 /path/to/project
 ```
 
-Then open `http://<server-ip>:3001` in your browser.
+Then open `http://localhost:3001` in your browser (or use SSH port forwarding for remote access: `ssh -L 3001:localhost:3001 your-server`).
 
 The `start.sh` script auto-detects first run and handles `npm install` + build. Subsequent starts are instant.
 
@@ -65,17 +71,18 @@ The `start.sh` script auto-detects first run and handles `npm install` + build. 
 
 ```bash
 # Using npm directly
-npm start                          # default CWD
-npm start /path/to/project         # specific CWD
-npm run start:mock                 # mock mode (no Claude, for UI testing)
+npm start                                          # default: localhost:3001
+npm start -- --host 0.0.0.0 --port 9999            # custom host/port
+npm start -- /path/to/project                       # specific CWD
+npm run start:mock                                  # mock mode (no Claude, for UI testing)
 ```
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `3001` | Server port |
-| `HOST` | `0.0.0.0` | Server bind address |
+| `PORT` | `3001` | Server port (overridden by `--port`) |
+| `HOST` | `localhost` | Server bind address (overridden by `--host`) |
 | `CLAUDE_TMUX_SESSION` | `claude` | tmux session name |
 | `CLAUDE_TMUX_PANE` | `0` | tmux pane index |
 | `MAX_EVENT_AGE_DAYS` | `30` | Auto-prune events older than this |
@@ -169,7 +176,7 @@ npm run build
 
 This is a **personal development tool**, not a production service. Be aware of:
 
-- **Network exposure** — The server binds to `0.0.0.0` by default. Anyone on the same network can access the UI, send commands to Claude, and run shell commands via `!`. Set `HOST=127.0.0.1` or use a firewall to restrict access.
+- **Network exposure** — The server binds to `localhost` by default (safe for SSH port forwarding). If you use `--host 0.0.0.0`, anyone on the same network can access the UI, send commands to Claude, and run shell commands via `!`. Use a firewall to restrict access when binding to all interfaces.
 - **No authentication** — There is no login or auth layer. All visitors have full access.
 - **Permission approval** — The permission control UI (approve/deny tool calls) works but has **not been extensively tested** across all Claude Code versions and edge cases. Treat it as a convenience, not a security boundary. When running with elevated permission modes (`auto`, `bypassPermissions`), Claude acts without asking.
 - **Shell execution** — The `!command` feature runs commands directly on the host as the server's user. Interactive commands are blocked by a best-effort blocklist, and there is a 30-second timeout, but this is not a sandbox.
@@ -190,4 +197,4 @@ This is a **personal development tool**, not a production service. Be aware of:
 - **Server:** Node.js, Express, TypeScript, better-sqlite3, ws
 - **Frontend:** React 18, TypeScript, Vite
 - **Diff Viewer:** Monaco Editor (lazy-loaded)
-- **Markdown:** react-markdown + rehype-highlight
+- **Markdown:** react-markdown + remark-gfm + rehype-highlight
