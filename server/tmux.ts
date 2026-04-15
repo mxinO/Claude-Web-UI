@@ -11,20 +11,20 @@ let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sendSeq = 0;
 
 export function sendInput(text: string): void {
-  // Use tmux load-buffer + paste-buffer for reliable text delivery.
-  // send-keys (with or without -l) can misinterpret key names or drop
-  // characters for certain inputs. load-buffer/paste-buffer sends the
-  // exact bytes without any interpretation.
+  // Use tmux load-buffer + paste-buffer with bracketed paste (-p) for
+  // reliable multi-line text delivery. Without -p, each \n is interpreted
+  // as Enter, splitting multi-line messages into separate submissions.
+  // With -p, the entire text is pasted as a single input.
   //
-  // Append \n so paste-buffer's trailing-newline acts as Enter.
-  // No separate send-keys Enter needed (avoids double-submit).
-  // Use a named buffer (-b) to avoid colliding with user's clipboard.
+  // Since -p wraps content in bracketed-paste sequences (\e[200~...\e[201~),
+  // newlines inside are literal — a separate send-keys Enter is needed to submit.
   const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
   const bufName = 'webui-input';
   try {
-    fs.writeFileSync(tmpFile, text + '\n');
+    fs.writeFileSync(tmpFile, text);
     execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
     execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+    execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
