@@ -1,6 +1,14 @@
 # Claude Code Web UI
 
-A web-based companion dashboard for [Claude Code](https://claude.ai/code). Provides a chat-style interface with diff review, streaming output, session management, and command autocomplete — accessible from any browser.
+A lightweight web-based companion for [Claude Code](https://claude.ai/code). The backend is just a Claude Code interactive session running in tmux — no custom AI server, no API keys, no proxy. Any tool, MCP server, or slash command available in Claude Code works here too. Accessible from any browser on the network.
+
+## Why This Exists
+
+Claude Code is a powerful CLI tool, but sometimes you want a browser-based interface — for remote access, diff review, or just a more visual experience. This project wraps Claude Code with a thin web layer:
+
+- **Zero overhead** — No separate AI backend. Claude Code IS the backend. The server just bridges tmux I/O to a WebSocket.
+- **Full compatibility** — Every tool, skill, and command in Claude Code works unchanged. The web UI is a viewer and input relay, not a reimplementation.
+- **Resilient** — Claude runs in tmux. Close the browser, lose your network, reconnect from another device — Claude keeps working. The UI catches up with a summary of what happened while you were away.
 
 ## Features
 
@@ -14,7 +22,7 @@ A web-based companion dashboard for [Claude Code](https://claude.ai/code). Provi
 - **Shell Commands** — type `!command` to run shell commands directly from the input box
 - **`/btw` Support** — side questions shown as floating toast popups
 - **Permission Control** — approve/deny tool calls from the browser
-- **Reconnection** — survives network drops (Claude runs in tmux), summary of missed events
+- **Reconnection** — survives network drops, browser closes, and device switches. Claude keeps running in tmux; the UI reconnects and shows a summary of missed events (edits, commands, agent activity)
 - **Light/Dark Theme** — toggle via sun/moon button in header
 - **Status Bar** — shows model, permission mode, effort level, CWD, connection status
 
