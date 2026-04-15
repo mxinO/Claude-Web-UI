@@ -15,6 +15,7 @@ import {
 import type { DbEvent } from './types.js';
 import { startStreaming, stopStreaming } from './streaming.js';
 import { addAllowedRoot } from './api.js';
+import { setClaudeBusy, setSessionIdGetter } from './queue.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
@@ -160,6 +161,8 @@ function getCurrentPermissionMode(): string | null {
 }
 
 export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
+  // Wire up the session ID getter for queue.ts (breaks circular import)
+  setSessionIdGetter(() => managedSessionId);
 
   // Middleware: silently drop events from non-managed sessions
   app.use('/hooks', (req: Request, res: Response, next) => {
@@ -260,14 +263,31 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       return;
     }
     ensureSession(session_id, cwd);
-    const eventId = insertEvent(session_id, 'user_message', {
-      message_text: prompt ?? user_input ?? null,
-      agent_id: agent_id ?? null,
-      agent_type: agent_type ?? null,
-      status: 'completed',
-    });
-    const event = getEvent(eventId)!;
-    bc.broadcastEvent(session_id, event);
+    const msgText = prompt ?? user_input ?? null;
+
+    // Check if send-input already created this user_message (optimistic insert).
+    // Match by text + recency (within last 60s) to avoid duplicates.
+    let eventId: number | null = null;
+    if (msgText) {
+      const existing = getDb().prepare(
+        `SELECT id FROM events WHERE session_id = ? AND event_type = 'user_message'
+         AND message_text = ? AND timestamp > datetime('now', '-60 seconds')
+         ORDER BY id DESC LIMIT 1`
+      ).get(session_id, msgText) as { id: number } | undefined;
+      if (existing) eventId = existing.id;
+    }
+
+    if (!eventId) {
+      eventId = insertEvent(session_id, 'user_message', {
+        message_text: msgText,
+        agent_id: agent_id ?? null,
+        agent_type: agent_type ?? null,
+        status: 'completed',
+      });
+      const event = getEvent(eventId)!;
+      bc.broadcastEvent(session_id, event);
+    }
+
     // Start streaming — poll tmux for partial output
     startStreaming(session_id);
     res.json({ ok: true, event_id: eventId });
@@ -295,6 +315,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     });
     const event = getEvent(eventId)!;
     bc.broadcastEvent(session_id, event);
+    // Claude finished this turn — mark idle (drains queue if messages pending)
+    setClaudeBusy(false);
     res.json({ ok: true, event_id: eventId });
   });
 
@@ -429,6 +451,9 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     });
     const event = getEvent(eventId)!;
     bc.broadcastEvent(session_id, event);
+    // Tool call finished — drain queue (matches Claude's native behavior:
+    // queued input is sent after any message or tool call completes)
+    setClaudeBusy(false);
     res.json({ ok: true, event_id: eventId });
   });
 

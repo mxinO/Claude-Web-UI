@@ -8,6 +8,7 @@ import ThinkingIndicator from './components/ThinkingIndicator';
 import StreamingCard from './components/StreamingCard';
 import BtwToast from './components/BtwToast';
 import { useWebSocket } from './hooks/useWebSocket';
+import type { QueuedMessage } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
 import './App.css';
@@ -20,7 +21,12 @@ export default function App() {
   const [streamingExpanded, setStreamingExpanded] = useState(false);
   const [cancelledText, setCancelledText] = useState<string | null>(null);
   const cancelledRef = useRef(false);
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const { events, addEvent, removeLastUserMessage, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
+
+  const onQueueChange = useCallback((queue: QueuedMessage[]) => {
+    setMessageQueue(queue);
+  }, []);
 
   const onStreaming = useCallback((text: string) => {
     if (cancelledRef.current) return; // ignore streaming after cancel
@@ -45,7 +51,7 @@ export default function App() {
     addEvent(event);
   }, [addEvent]);
 
-  const { connected } = useWebSocket({ onEvent, onStreaming, session, setSession });
+  const { connected } = useWebSocket({ onEvent, onStreaming, onQueueChange, session, setSession });
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -194,6 +200,37 @@ export default function App() {
 
           {/* Thinking dots — only before streaming starts */}
           {isThinking && <ThinkingIndicator />}
+
+          {/* Queued messages */}
+          {messageQueue.map((msg) => (
+            <div key={msg.id} className="chat-row chat-row--user">
+              <div className="queued-message">
+                <div className="queued-badge">Queued</div>
+                <div className="queued-text">{msg.text}</div>
+                <div className="queued-actions">
+                  <button
+                    className="queued-btn queued-btn--edit"
+                    title="Edit — put back in input"
+                    onClick={async () => {
+                      await fetch(`/api/queue/${msg.id}`, { method: 'DELETE' });
+                      window.dispatchEvent(new CustomEvent('insert-input-text', {
+                        detail: { text: msg.text }
+                      }));
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="queued-btn queued-btn--cancel"
+                    title="Cancel — remove from queue"
+                    onClick={() => fetch(`/api/queue/${msg.id}`, { method: 'DELETE' })}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
 
           <div ref={bottomRef} />
         </div>

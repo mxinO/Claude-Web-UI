@@ -6,6 +6,7 @@ import {
   getSession,
   getEvents,
   getEvent,
+  insertEvent,
   getPermissionRequest,
   resolvePermission,
   updateEvent,
@@ -16,8 +17,9 @@ import {
 import type { DbPermissionRequest } from './types.js';
 import { execSync } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
-import { broadcastPermissionDecision } from './websocket.js';
+import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId } from './hooks.js';
+import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued } from './queue.js';
 
 
 // Allowed root directories for file access — the CWD and $HOME.
@@ -149,7 +151,7 @@ export function registerApiRoutes(app: Express): void {
     res.json({ ok: true, decision });
   });
 
-  // POST /api/send-input — send text to Claude via tmux
+  // POST /api/send-input — send text to Claude via tmux (or queue if busy)
   router.post('/send-input', (req, res) => {
     const { text } = req.body as { text?: string };
     if (typeof text !== 'string') {
@@ -157,11 +159,51 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     try {
+      // Slash commands always go directly (they're TUI commands, not prompts)
+      if (text.startsWith('/')) {
+        sendInput(text);
+        res.json({ ok: true });
+        return;
+      }
+
+      // If Claude is busy, queue the message
+      if (isClaudeBusy()) {
+        const msg = enqueue(text);
+        res.json({ ok: true, queued: true, queue_id: msg.id });
+        return;
+      }
+
+      // Send immediately
       sendInput(text);
-      res.json({ ok: true });
+      setClaudeBusy(true);
+
+      // Create user_message event so the UI shows it right away
+      const sessionId = getManagedSessionId();
+      if (sessionId) {
+        const eventId = insertEvent(sessionId, 'user_message', {
+          message_text: text,
+          status: 'completed',
+        });
+        const event = getEvent(eventId);
+        if (event) broadcastEvent(sessionId, event);
+      }
+
+      res.json({ ok: true, queued: false });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
+  });
+
+  // GET /api/queue — list queued messages
+  router.get('/queue', (_req, res) => {
+    res.json(getQueue());
+  });
+
+  // DELETE /api/queue/:id — remove a queued message
+  router.delete('/queue/:id', (req, res) => {
+    const msg = removeQueued(req.params.id);
+    if (!msg) { res.status(404).json({ error: 'Not found' }); return; }
+    res.json({ ok: true, message: msg });
   });
 
   // POST /api/interrupt — send Escape to interrupt current operation
@@ -208,6 +250,9 @@ export function registerApiRoutes(app: Express): void {
           ).run(managedId);
         }
       }
+
+      // Interrupt means Claude is idle now — reset busy flag (drains queue if any)
+      setClaudeBusy(false);
 
       res.json({ ok: true, restoredText: restoredText || null });
     } catch (err) {

@@ -1278,3 +1278,57 @@ body {
   border-color: var(--red);
   opacity: 0.7;
 }
+
+/* Queued messages */
+.queued-message {
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--yellow);
+  border-radius: 12px;
+  padding: 8px 14px;
+  max-width: 80%;
+  opacity: 0.85;
+}
+
+.queued-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--yellow);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.queued-text {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 6px;
+}
+
+.queued-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.queued-btn {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.queued-btn:hover {
+  background: var(--bg-hover);
+}
+
+.queued-btn--cancel {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.queued-btn--cancel:hover {
+  background: rgba(255, 80, 80, 0.1);
+}

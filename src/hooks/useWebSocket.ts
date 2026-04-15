@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Session, TimelineEvent } from '../types';
 
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
 interface UseWebSocketOptions {
   onEvent: (event: TimelineEvent) => void;
   onStreaming?: (text: string) => void;
   onStreamingDone?: () => void;
+  onQueueChange?: (queue: QueuedMessage[]) => void;
   session: Session | null;
   setSession: (session: Session) => void;
 }
 
-export function useWebSocket({ onEvent, onStreaming, onStreamingDone, session, setSession }: UseWebSocketOptions) {
+export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueChange, session, setSession }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -20,6 +27,9 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, session, s
   onStreamingRef.current = onStreaming;
   const onStreamingDoneRef = useRef(onStreamingDone);
   onStreamingDoneRef.current = onStreamingDone;
+  const queueRef = useRef<QueuedMessage[]>([]);
+  const onQueueChangeRef = useRef(onQueueChange);
+  onQueueChangeRef.current = onQueueChange;
 
   const connect = useCallback(() => {
     if (wsRef.current) {
@@ -53,6 +63,12 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, session, s
           onStreamingRef.current?.(data.text);
         } else if (data.type === 'streaming_done') {
           onStreamingDoneRef.current?.();
+        } else if (data.type === 'queue_add' && data.message) {
+          queueRef.current = [...queueRef.current, data.message];
+          onQueueChangeRef.current?.(queueRef.current);
+        } else if (data.type === 'queue_remove' && data.id) {
+          queueRef.current = queueRef.current.filter(m => m.id !== data.id);
+          onQueueChangeRef.current?.(queueRef.current);
         }
       } catch {
         // ignore
@@ -74,6 +90,12 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, session, s
     fetch('/api/sessions/latest')
       .then(r => r.ok ? r.json() : null)
       .then(s => { if (s) setSession(s); })
+      .catch(() => {});
+
+    // Load initial queue
+    fetch('/api/queue')
+      .then(r => r.ok ? r.json() : [])
+      .then((q: QueuedMessage[]) => { queueRef.current = q; onQueueChangeRef.current?.(q); })
       .catch(() => {});
 
     connect();
