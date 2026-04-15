@@ -55,9 +55,13 @@ function isPathSafe(filePath: string): boolean {
     // Block sensitive paths
     const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.env'];
     if (blocked.some(b => realPath.includes('/' + b + '/') || realPath.endsWith('/' + b))) return false;
-    // Must be under (or equal to) an allowed root (HOME or Claude's CWD)
-    if (!allowedRoots.some(root => realPath === root || realPath.startsWith(root + '/'))) {
-      console.log(`[isPathSafe] DENIED ${realPath} — roots: ${allowedRoots.join(', ')}`);
+    // Must be under (or equal to) an allowed root (HOME or Claude's CWD).
+    // Check both the real (symlink-resolved) path AND the logical path, because
+    // symlinks inside a root (e.g. ~/mxin -> /lustre/...) cause the real path
+    // to escape the root's real path even though logically it's underneath.
+    const underRoot = (p: string) => allowedRoots.some(root => p === root || p.startsWith(root + '/'));
+    if (!underRoot(realPath) && !underRoot(resolved)) {
+      console.log(`[isPathSafe] DENIED real=${realPath} logical=${resolved} — roots: ${allowedRoots.join(', ')}`);
       return false;
     }
     return true;
