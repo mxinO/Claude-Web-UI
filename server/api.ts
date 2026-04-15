@@ -42,6 +42,7 @@ addRoot(process.env.HOME || '/root');
 
 export function addAllowedRoot(dir: string): void {
   addRoot(dir);
+  console.log(`[allowedRoots] added ${dir} — now: ${allowedRoots.join(', ')}`);
 }
 
 function isPathSafe(filePath: string): boolean {
@@ -55,7 +56,10 @@ function isPathSafe(filePath: string): boolean {
     const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.env'];
     if (blocked.some(b => realPath.includes('/' + b + '/') || realPath.endsWith('/' + b))) return false;
     // Must be under (or equal to) an allowed root (HOME or Claude's CWD)
-    if (!allowedRoots.some(root => realPath === root || realPath.startsWith(root + '/'))) return false;
+    if (!allowedRoots.some(root => realPath === root || realPath.startsWith(root + '/'))) {
+      console.log(`[isPathSafe] DENIED ${realPath} — roots: ${allowedRoots.join(', ')}`);
+      return false;
+    }
     return true;
   } catch { return false; }
 }
