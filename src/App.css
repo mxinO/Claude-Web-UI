@@ -12,6 +12,9 @@
   --yellow: #dcdcaa;
   --purple: #c586c0;
   --user-bubble: #2b5278;
+  --table-border: #555568;
+  --table-header: #2a2a3a;
+  --table-stripe: #262630;
 }
 
 [data-theme="light"] {
@@ -28,6 +31,9 @@
   --yellow: #795e26;
   --purple: #af00db;
   --user-bubble: #d0e8ff;
+  --table-border: #b0b0b0;
+  --table-header: #e0e0e8;
+  --table-stripe: #f0f0f5;
 }
 
 * {
@@ -757,6 +763,31 @@ body {
   margin: 0;
   padding-left: 12px;
   color: var(--text-secondary);
+}
+
+.markdown-content table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  border: 1px solid var(--table-border);
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--table-border);
+  padding: 6px 12px;
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--table-header);
+  font-weight: 600;
+}
+
+.markdown-content tr:nth-child(even) {
+  background: var(--table-stripe);
 }
 
 /* ── Bash output ───────────────────────────────────────────────── */
