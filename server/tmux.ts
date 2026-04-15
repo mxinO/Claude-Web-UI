@@ -17,14 +17,16 @@ export function sendInput(text: string): void {
   // With -p, the entire text is pasted as a single input.
   //
   // Since -p wraps content in bracketed-paste sequences (\e[200~...\e[201~),
-  // newlines inside are literal — a separate send-keys Enter is needed to submit.
+  // newlines inside are literal. Claude Code's TUI shows a "[Pasted text]"
+  // preview for bracketed pastes — first Enter confirms/expands the paste,
+  // second Enter submits the prompt.
   const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
   const bufName = 'webui-input';
   try {
     fs.writeFileSync(tmpFile, text);
     execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
     execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-    execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+    execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter Enter`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
