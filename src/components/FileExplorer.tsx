@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 interface DirEntry {
   name: string;
@@ -13,33 +13,47 @@ interface TreeNode {
 }
 
 interface FileExplorerProps {
-  visible: boolean;
-  onClose: () => void;
   onInsert: (path: string) => void;
 }
 
-export default function FileExplorer({ visible, onClose, onInsert }: FileExplorerProps) {
+export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const [roots, setRoots] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewFile, setViewFile] = useState<{ path: string; content: string } | null>(null);
+  const [cwdLabel, setCwdLabel] = useState<string>('');
+  const loadedRef = useRef(false);
 
-  // Load root directory on open — use Claude's actual CWD
+  // Load root directory on mount
   useEffect(() => {
-    if (visible && roots.length === 0) {
-      (async () => {
-        let cwd = '.';
-        try {
-          const status = await fetch('/api/current-status');
-          if (status.ok) {
-            const data = await status.json();
-            if (data.cwd) cwd = data.cwd;
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    (async () => {
+      let cwd = '.';
+      try {
+        const status = await fetch('/api/current-status');
+        if (status.ok) {
+          const data = await status.json();
+          if (data.cwd) {
+            cwd = data.cwd;
+            // Show just the last path segment as label
+            setCwdLabel(cwd.split('/').filter(Boolean).pop() || cwd);
           }
-        } catch { /* fall back to '.' */ }
-        const items = await loadDir(cwd);
-        setRoots(items.map((e) => ({ entry: e, children: null, expanded: false })));
-      })();
-    }
-  }, [visible, roots.length]);
+        }
+      } catch { /* fall back to '.' */ }
+      const items = await loadDir(cwd);
+      setRoots(items.map((e) => ({ entry: e, children: null, expanded: false })));
+    })();
+  }, []);
+
+  // Reload when session changes (page reload handles this, but also listen for explicit event)
+  useEffect(() => {
+    const handler = () => {
+      loadedRef.current = false;
+      setRoots([]);
+    };
+    window.addEventListener('session-changed', handler);
+    return () => window.removeEventListener('session-changed', handler);
+  }, []);
 
   const loadDir = useCallback(async (path: string): Promise<DirEntry[]> => {
     setLoading(true);
@@ -108,14 +122,12 @@ export default function FileExplorer({ visible, onClose, onInsert }: FileExplore
     }
   }, []);
 
-  if (!visible) return null;
-
   const renderTree = (nodes: TreeNode[], depth: number, parentPath: string[]): JSX.Element[] => {
     return nodes.map((node) => (
       <div key={node.entry.path}>
         <div
           className="file-explorer-item"
-          style={{ paddingLeft: `${12 + depth * 16}px` }}
+          style={{ paddingLeft: `${8 + depth * 16}px` }}
         >
           <span
             className="file-explorer-name"
@@ -154,13 +166,11 @@ export default function FileExplorer({ visible, onClose, onInsert }: FileExplore
   };
 
   return (
-    <div className="file-explorer">
+    <div className="sidebar-explorer">
       <div className="file-explorer-header">
-        <span>File Explorer</span>
+        <span>Explorer</span>
+        {cwdLabel && <span className="file-explorer-cwd" title={cwdLabel}>{cwdLabel}</span>}
         {loading && <span className="file-explorer-loading">...</span>}
-        <button className="file-explorer-close" onClick={onClose}>
-          &times;
-        </button>
       </div>
       <div className="file-explorer-tree">
         {roots.length === 0 && !loading && (

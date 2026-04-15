@@ -3,6 +3,7 @@ import Header from './components/Header';
 import ChatMessage from './components/ChatMessage';
 import DetailModal from './components/DetailModal';
 import InputBox from './components/InputBox';
+import FileExplorer from './components/FileExplorer';
 import ReconnectSummaryWidget from './components/ReconnectSummary';
 import ThinkingIndicator from './components/ThinkingIndicator';
 import StreamingCard from './components/StreamingCard';
@@ -12,6 +13,10 @@ import type { QueuedMessage } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
 import './App.css';
+
+const SIDEBAR_MIN = 150;
+const SIDEBAR_MAX = 600;
+const SIDEBAR_DEFAULT = 260;
 
 export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
@@ -23,6 +28,15 @@ export default function App() {
   const cancelledRef = useRef(false);
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const [waitingForReply, setWaitingForReply] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const saved = localStorage.getItem('sidebar-open');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebar-width');
+    return saved ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, parseInt(saved))) : SIDEBAR_DEFAULT;
+  });
+  const resizingRef = useRef(false);
   const { events, addEvent, removeLastUserMessage, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
 
   const onQueueChange = useCallback((queue: QueuedMessage[]) => {
@@ -157,6 +171,41 @@ export default function App() {
     return () => window.removeEventListener('claude-message-sent', handler);
   }, []);
 
+  // Sidebar resize
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const onMove = (ev: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const newW = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, startW + (ev.clientX - startX)));
+      setSidebarWidth(newW);
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setSidebarWidth(w => { localStorage.setItem('sidebar-width', String(w)); return w; });
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [sidebarWidth]);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen(v => { const next = !v; localStorage.setItem('sidebar-open', String(next)); return next; });
+  }, []);
+
+  const handleInsertPath = useCallback((filePath: string) => {
+    window.dispatchEvent(new CustomEvent('insert-input-text', {
+      detail: { text: filePath, append: true }
+    }));
+  }, []);
+
   // Thinking state: only when we actively sent a message and haven't got a reply yet
   const isThinking = waitingForReply && !streamingText && !cancelledRef.current;
 
@@ -167,6 +216,24 @@ export default function App() {
     <div className="app">
       <Header session={session} connected={connected} />
 
+      <div className="app-body">
+        {/* Sidebar toggle (always visible) */}
+        <button className="sidebar-toggle" onClick={toggleSidebar} title={sidebarOpen ? 'Hide explorer' : 'Show explorer'}>
+          {sidebarOpen ? '◀' : '▶'}
+        </button>
+
+        {/* File explorer sidebar */}
+        {sidebarOpen && (
+          <>
+            <div className="sidebar" style={{ width: sidebarWidth }}>
+              <FileExplorer onInsert={handleInsertPath} />
+            </div>
+            <div className="sidebar-resize" onMouseDown={onResizeStart} />
+          </>
+        )}
+
+        {/* Main chat area */}
+        <div className="main-panel">
       <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="chat-column">
           <div ref={sentinelRef} style={{ height: 1 }} />
@@ -254,6 +321,8 @@ export default function App() {
       </div>
 
       <InputBox isRunning={isRunning} />
+        </div>{/* end .main-panel */}
+      </div>{/* end .app-body */}
 
       {/* Detail modal for tool calls */}
       {modalEvent && (

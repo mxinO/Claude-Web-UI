@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, KeyboardEvent, useEffect } from 'react';
 import Autocomplete, { AutocompleteItem } from './Autocomplete';
-import FileExplorer from './FileExplorer';
 
 const MAX_HISTORY = 50;
 const MIN_ROWS = 1;
@@ -89,7 +88,6 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
   const acVisible = acMode !== 'none' && acItems.length > 0;
 
   // File explorer state
-  const [explorerVisible, setExplorerVisible] = useState(false);
 
   // Track @ position for file autocomplete
   const atPosRef = useRef(-1);
@@ -99,7 +97,12 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
     const handler = (e: Event) => {
       const text = (e as CustomEvent).detail?.text;
       if (typeof text === 'string') {
-        setValue(text);
+        const append = (e as CustomEvent).detail?.append;
+        if (append) {
+          setValue(prev => prev + text + ' ');
+        } else {
+          setValue(text);
+        }
         textareaRef.current?.focus();
       }
     };
@@ -418,12 +421,6 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
         return;
       }
 
-      // Escape closes file explorer
-      if (e.key === 'Escape' && explorerVisible) {
-        setExplorerVisible(false);
-        return;
-      }
-
       const hist = historyRef.current;
       const isMultiline = value.includes('\n');
       if (!isMultiline && e.key === 'ArrowUp') {
@@ -447,13 +444,8 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
         }
       }
     },
-    [value, send, acVisible, acItems.length, acIndex, selectAutocompleteItem, closeAutocomplete, explorerVisible],
+    [value, send, acVisible, acItems.length, acIndex, selectAutocompleteItem, closeAutocomplete],
   );
-
-  const handleInsertFromExplorer = useCallback((path: string) => {
-    setValue((prev) => prev + path + ' ');
-    textareaRef.current?.focus();
-  }, []);
 
   return (
     <div className="input-container">
@@ -480,13 +472,6 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
             rows={MIN_ROWS}
           />
         </div>
-        <button
-          className="file-explorer-toggle"
-          onClick={() => setExplorerVisible((v) => !v)}
-          title="Browse files"
-        >
-          📁
-        </button>
         {isRunning && (
           <button
             className="stop-button"
@@ -507,11 +492,6 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
           </button>
         )}
       </div>
-      <FileExplorer
-        visible={explorerVisible}
-        onClose={() => setExplorerVisible(false)}
-        onInsert={handleInsertFromExplorer}
-      />
     </div>
   );
 }

@@ -58,6 +58,97 @@ body {
   overflow: hidden;
 }
 
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+
+.sidebar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.sidebar-toggle {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  z-index: 10;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 4px 4px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.sidebar-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-resize {
+  width: 4px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.sidebar-resize:hover,
+.sidebar-resize:active {
+  background: var(--text-accent);
+}
+
+.sidebar-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sidebar-explorer .file-explorer-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-explorer-cwd {
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Header ────────────────────────────────────────────────────── */
 
 .header {
@@ -846,26 +937,6 @@ body {
   width: 100%;
 }
 
-.file-explorer-toggle {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 16px;
-  padding: 6px 10px;
-  cursor: pointer;
-  flex-shrink: 0;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.file-explorer-toggle:hover {
-  background: var(--bg-hover);
-  border-color: var(--text-secondary);
-}
 
 /* ── Autocomplete dropdown ────────────────────────────────────── */
 
@@ -937,55 +1008,11 @@ body {
   max-width: 50%;
 }
 
-/* ── File explorer panel ──────────────────────────────────────── */
-
-.file-explorer {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  width: 300px;
-  max-height: 400px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
-  display: flex;
-  flex-direction: column;
-  z-index: 99;
-  margin-bottom: 4px;
-  overflow: hidden;
-}
-
-.file-explorer-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: bold;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
+/* ── File explorer (sidebar content) ──────────────────────────── */
 
 .file-explorer-loading {
   color: var(--text-secondary);
   font-weight: normal;
-}
-
-.file-explorer-close {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 18px;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-}
-
-.file-explorer-close:hover {
-  color: var(--text-primary);
 }
 
 .file-explorer-tree {
