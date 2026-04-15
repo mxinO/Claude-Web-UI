@@ -48,7 +48,8 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
     throw new Error('Invalid characters in args');
   }
   const dir = cwd || process.cwd();
-  const cmd = `tmux new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "claude ${args}"`;
+  // cd first so Claude Code sees the correct project directory for --resume
+  const cmd = `tmux new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && claude ${args}"`;
   execSync(cmd, execOpts);
 
   // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.
