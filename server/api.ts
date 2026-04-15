@@ -39,6 +39,16 @@ function isPathSafe(filePath: string): boolean {
   } catch { return false; }
 }
 
+/** Get Claude's working directory (from the active session DB), falling back to server CWD */
+function getClaudeCwd(): string {
+  const managedId = getManagedSessionId();
+  if (managedId) {
+    const sess = getSession(managedId);
+    if (sess?.cwd) return sess.cwd;
+  }
+  return process.cwd();
+}
+
 export function registerApiRoutes(app: Express): void {
   const router = Router();
 
@@ -547,7 +557,10 @@ export function registerApiRoutes(app: Express): void {
 
   // List directory contents (1 level) for @file autocomplete and file explorer
   router.get('/ls', (req, res) => {
-    const dirPath = (req.query.path as string) || process.cwd();
+    const claudeCwd = getClaudeCwd();
+    const raw = (req.query.path as string) || claudeCwd;
+    // Resolve relative paths against Claude's CWD, not the server's
+    const dirPath = path.isAbsolute(raw) ? raw : path.resolve(claudeCwd, raw);
     if (!isPathSafe(dirPath)) {
       res.status(403).json({ error: 'Access denied' });
       return;
@@ -558,7 +571,7 @@ export function registerApiRoutes(app: Express): void {
         .filter(e => !e.name.startsWith('.')) // skip hidden files
         .map(e => ({
           name: e.name,
-          path: path.join(dirPath, e.name),
+          path: path.join(raw, e.name),
           isDir: e.isDirectory(),
         }))
         .sort((a, b) => {
@@ -566,7 +579,7 @@ export function registerApiRoutes(app: Express): void {
           if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
           return a.name.localeCompare(b.name);
         });
-      res.json({ path: dirPath, items });
+      res.json({ path: raw, items });
     } catch (err) {
       res.status(404).json({ error: `Cannot read directory: ${err}` });
     }
@@ -574,7 +587,9 @@ export function registerApiRoutes(app: Express): void {
 
   // List recently modified files in workdir (for @file suggestions)
   router.get('/recent-files', (req, res) => {
-    const dirPath = (req.query.path as string) || process.cwd();
+    const claudeCwd = getClaudeCwd();
+    const raw = (req.query.path as string) || claudeCwd;
+    const dirPath = path.isAbsolute(raw) ? raw : path.resolve(claudeCwd, raw);
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     if (!isPathSafe(dirPath)) {
       res.status(403).json({ error: 'Access denied' });
@@ -582,7 +597,16 @@ export function registerApiRoutes(app: Express): void {
     }
     try {
       const files = getRecentFiles(dirPath, limit);
-      res.json({ path: dirPath, files });
+      // If the request used a relative path, return relative paths in the response
+      if (!path.isAbsolute(raw)) {
+        const prefix = dirPath.endsWith('/') ? dirPath : dirPath + '/';
+        for (const f of files) {
+          if (f.path.startsWith(prefix)) {
+            f.path = f.path.slice(prefix.length);
+          }
+        }
+      }
+      res.json({ path: raw, files });
     } catch (err) {
       res.status(500).json({ error: `Failed to list recent files: ${err}` });
     }
