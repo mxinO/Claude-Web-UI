@@ -19,6 +19,7 @@ interface UseWebSocketOptions {
 export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueChange, session, setSession }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const probeWsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>();
   const lastEventId = useRef(0);
   const onEventRef = useRef(onEvent);
@@ -78,9 +79,20 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
     ws.onclose = (event) => {
       setConnected(false);
       wsRef.current = null;
-      // Auth failure — redirect to login instead of reconnecting
       if (event.code === 4401) {
-        window.location.reload();
+        // Auth failure on WS — retry once (cookie may still be valid after network blip),
+        // then show auth-lost overlay if it fails again
+        reconnectTimer.current = setTimeout(() => {
+          const retryWs = new WebSocket(`${protocol}//${window.location.host}/ws`);
+          probeWsRef.current = retryWs;
+          retryWs.onopen = () => { probeWsRef.current = null; retryWs.close(); connect(); };
+          retryWs.onclose = (e) => {
+            probeWsRef.current = null;
+            if (e.code === 4401) window.dispatchEvent(new CustomEvent('auth-lost'));
+            else connect(); // different error, keep trying
+          };
+          retryWs.onerror = () => {}; // onclose will fire
+        }, 1000);
         return;
       }
       const delay = 1000 + Math.random() * 4000;
@@ -105,8 +117,21 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
 
     connect();
 
+    // Re-connect after auth recovery (token re-entered)
+    const onAuthRestored = () => {
+      clearTimeout(reconnectTimer.current);
+      connect();
+    };
+    window.addEventListener('auth-restored', onAuthRestored);
+
     return () => {
       clearTimeout(reconnectTimer.current);
+      window.removeEventListener('auth-restored', onAuthRestored);
+      if (probeWsRef.current) {
+        probeWsRef.current.onclose = null;
+        probeWsRef.current.close();
+        probeWsRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();

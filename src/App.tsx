@@ -8,8 +8,10 @@ import ReconnectSummaryWidget from './components/ReconnectSummary';
 import ThinkingIndicator from './components/ThinkingIndicator';
 import StreamingCard from './components/StreamingCard';
 import BtwToast from './components/BtwToast';
+import AuthOverlay from './components/AuthOverlay';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { QueuedMessage } from './hooks/useWebSocket';
+import { useAuthRecovery } from './hooks/useAuthRecovery';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
 import './App.css';
@@ -143,6 +145,7 @@ export default function App() {
   }, [addEvent]);
 
   const { connected } = useWebSocket({ onEvent, onStreaming, onQueueChange, session, setSession });
+  const { needsAuth } = useAuthRecovery();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -447,6 +450,13 @@ export default function App() {
                 </div>
               ))}
 
+              {!connected && !needsAuth && (
+                <div className="disconnect-banner">
+                  <div className="disconnect-banner-dot" />
+                  Connection lost — reconnecting...
+                </div>
+              )}
+
               <div ref={bottomRef} />
             </div>
           </div>
@@ -483,6 +493,9 @@ export default function App() {
           onClose={() => setBtwData(null)}
         />
       )}
+
+      {/* Auth recovery overlay */}
+      <AuthOverlay visible={needsAuth} />
     </div>
   );
 }
