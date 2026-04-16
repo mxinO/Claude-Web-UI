@@ -380,10 +380,14 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
       return;
     }
 
-    // Other slash commands use the special endpoint that captures TUI response
-    if (trimmed.startsWith('/')) {
-      sendSlashRef.current(trimmed);
-      return;
+    // Slash commands: must start with / followed by a letter (not a path like /usr/...)
+    if (trimmed.startsWith('/') && /^\/[a-zA-Z]/.test(trimmed) && !trimmed.startsWith('//')) {
+      const cmd = trimmed.split(/\s/)[0].toLowerCase();
+      const isKnownCommand = FALLBACK_COMMANDS.some(c => c.command === cmd);
+      if (isKnownCommand) {
+        sendSlashRef.current(trimmed);
+        return;
+      }
     }
 
     try {

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Router, Express } from 'express';
+import express, { Router, Express } from 'express';
 import {
   listSessions,
   getSession,
@@ -530,6 +530,54 @@ export function registerApiRoutes(app: Express): void {
       res.json({ path: filePath, content, size: stat.size });
     } catch (err) {
       res.status(404).json({ error: `Cannot read file: ${err}` });
+    }
+  });
+
+  // Download a file (binary-safe, triggers browser download)
+  router.get('/download', (req, res) => {
+    const filePath = req.query.path as string;
+    if (!filePath) { res.status(400).json({ error: 'path required' }); return; }
+    if (!isPathSafe(filePath)) { res.status(403).json({ error: 'Access denied' }); return; }
+    try {
+      const resolved = path.resolve(filePath);
+      const stat = fs.statSync(resolved);
+      if (!stat.isFile()) { res.status(400).json({ error: 'Not a file' }); return; }
+      res.download(resolved, path.basename(resolved));
+    } catch (err) {
+      res.status(404).json({ error: `Cannot read file: ${err}` });
+    }
+  });
+
+  // Upload files to a directory
+  router.post('/upload', express.raw({ type: 'application/octet-stream', limit: '10mb' }), (req, res) => {
+    const dirPath = req.query.dir as string;
+    const fileName = req.query.name as string;
+    if (!dirPath || !fileName) {
+      res.status(400).json({ error: 'dir and name query params required' });
+      return;
+    }
+    // Sanitize filename: must be a plain name with no path components
+    const sanitized = path.basename(fileName);
+    if (sanitized !== fileName || !sanitized || sanitized === '.' || sanitized === '..') {
+      res.status(403).json({ error: 'Invalid filename' });
+      return;
+    }
+    if (!isPathSafe(dirPath)) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+    try {
+      const resolved = path.resolve(dirPath);
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+        res.status(400).json({ error: 'Target is not a directory' });
+        return;
+      }
+      const destPath = path.join(resolved, sanitized);
+      const existed = fs.existsSync(destPath);
+      fs.writeFileSync(destPath, req.body);
+      res.json({ ok: true, path: destPath, size: (req.body as Buffer).length, overwritten: existed });
+    } catch (err) {
+      res.status(500).json({ error: `Upload failed: ${err}` });
     }
   });
 

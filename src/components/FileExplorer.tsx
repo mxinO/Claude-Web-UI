@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
 
 interface DirEntry {
   name: string;
@@ -22,6 +22,7 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const [viewFile, setViewFile] = useState<{ path: string; content: string } | null>(null);
   const [cwdLabel, setCwdLabel] = useState<string>('');
   const [cwdFull, setCwdFull] = useState<string>('');
+  const [statusMsg, setStatusMsg] = useState<string>('');
   const loadedRef = useRef(false);
 
   const loadDir = useCallback(async (dirPath: string): Promise<DirEntry[]> => {
@@ -115,6 +116,48 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
     }
   }, []);
 
+  const handleDownload = useCallback((filePath: string) => {
+    const a = document.createElement('a');
+    a.href = `/api/download?path=${encodeURIComponent(filePath)}`;
+    a.click();
+  }, []);
+
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const uploadDirRef = useRef<string>('');
+
+  const triggerUpload = useCallback((dirPath: string) => {
+    uploadDirRef.current = dirPath;
+    uploadInputRef.current?.click();
+  }, []);
+
+  const handleUpload = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const dir = uploadDirRef.current;
+    let ok = 0, failed = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const buf = await file.arrayBuffer();
+        const res = await fetch(`/api/upload?dir=${encodeURIComponent(dir)}&name=${encodeURIComponent(file.name)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: buf,
+        });
+        if (res.ok) ok++; else failed++;
+      } catch { failed++; }
+    }
+    // Reset input so the same file can be re-uploaded
+    e.target.value = '';
+    if (failed > 0) {
+      setStatusMsg(`Uploaded ${ok}, failed ${failed}`);
+    } else {
+      setStatusMsg(`Uploaded ${ok} file${ok > 1 ? 's' : ''}`);
+    }
+    setTimeout(() => setStatusMsg(''), 3000);
+    // Refresh to show new files
+    refreshRoot();
+  }, [refreshRoot]);
+
   const renderTree = (nodes: TreeNode[], depth: number, parentPath: string[]): JSX.Element[] => {
     return nodes.map((node) => (
       <div key={node.entry.path}>
@@ -143,13 +186,29 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
             >
               +
             </button>
-            {!node.entry.isDir && (
+            {node.entry.isDir && (
               <button
-                title="View file"
-                onClick={() => handleView(node.entry.path)}
+                title="Upload file here"
+                onClick={() => triggerUpload(node.entry.path)}
               >
-                👁
+                ↑
               </button>
+            )}
+            {!node.entry.isDir && (
+              <>
+                <button
+                  title="View file"
+                  onClick={() => handleView(node.entry.path)}
+                >
+                  👁
+                </button>
+                <button
+                  title="Download file"
+                  onClick={() => handleDownload(node.entry.path)}
+                >
+                  ↓
+                </button>
+              </>
             )}
           </span>
         </div>
@@ -165,6 +224,13 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
         {cwdLabel && <span className="file-explorer-cwd" title={cwdFull}>{cwdLabel}</span>}
         <button
           className="file-explorer-refresh"
+          onClick={() => triggerUpload(cwdFull || '.')}
+          title="Upload to root"
+        >
+          ↑
+        </button>
+        <button
+          className="file-explorer-refresh"
           onClick={refreshRoot}
           disabled={loading}
           title="Refresh"
@@ -173,12 +239,25 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
         </button>
         {loading && <span className="file-explorer-loading">...</span>}
       </div>
+      {statusMsg && (
+        <div style={{ fontSize: 11, padding: '2px 8px', color: statusMsg.includes('failed') ? 'var(--red)' : 'var(--green)' }}>
+          {statusMsg}
+        </div>
+      )}
       <div className="file-explorer-tree">
         {roots.length === 0 && !loading && (
           <div className="file-explorer-empty">No files found</div>
         )}
         {renderTree(roots, 0, [])}
       </div>
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={handleUpload}
+      />
 
       {viewFile && (
         <div className="modal-overlay" onClick={() => setViewFile(null)}>
