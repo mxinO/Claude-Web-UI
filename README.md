@@ -1,4 +1,4 @@
-# <img src="src/public/favicon.svg" width="28" height="28" style="vertical-align: middle;" /> Claude Code Web UI
+# <img src="src/public/favicon.svg" width="36" height="36" style="vertical-align: middle;" /> Claude Code Web UI
 
 A lightweight web-based companion for [Claude Code](https://claude.ai/code). The backend is just a Claude Code interactive session running in tmux — no custom AI server, no API keys, no proxy. Any tool, MCP server, or slash command available in Claude Code works here too. Access it via SSH port forwarding or bind to a custom host/port.
 
