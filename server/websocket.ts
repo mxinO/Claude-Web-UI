@@ -2,6 +2,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server, IncomingMessage } from 'http';
 import type { DbEvent } from './types.js';
 import { checkAuthCookie } from './auth.js';
+import { getEvents } from './db.js';
+
+const MAX_CATCHUP_EVENTS = 500;
 
 interface Client {
   ws: WebSocket;
@@ -28,7 +31,28 @@ export function initWebSocket(server: Server): WebSocketServer {
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'subscribe') {
           client.sessionId = msg.session_id || null;
-          client.lastEventId = msg.last_event_id || 0;
+          const lastId = msg.last_event_id || 0;
+          client.lastEventId = lastId;
+
+          // Catch-up: send events the client missed since lastEventId
+          if (client.sessionId && lastId > 0) {
+            try {
+              const missed = getEvents(client.sessionId, {
+                afterId: lastId,
+                limit: MAX_CATCHUP_EVENTS,
+              });
+              for (const event of missed) {
+                if (ws.readyState !== WebSocket.OPEN) break;
+                ws.send(JSON.stringify({ type: 'event', event }));
+                // Track highest sent ID so broadcast() skips duplicates
+                if (event.id > client.lastEventId) {
+                  client.lastEventId = event.id;
+                }
+              }
+            } catch (err) {
+              console.error('[ws] Catch-up failed:', err);
+            }
+          }
         }
       } catch {
         // ignore malformed messages
@@ -55,7 +79,17 @@ export function broadcast(sessionId: string, type: string, payload: Record<strin
 }
 
 export function broadcastEvent(sessionId: string, event: DbEvent): void {
-  broadcast(sessionId, 'event', { event });
+  const message = JSON.stringify({ type: 'event', event });
+  for (const client of clients) {
+    if (client.ws.readyState !== WebSocket.OPEN) continue;
+    if (client.sessionId && client.sessionId !== sessionId) continue;
+    // Skip events already sent via catch-up (prevents out-of-order duplicates)
+    if (event.id > 0 && event.id <= client.lastEventId) continue;
+    client.ws.send(message);
+    if (event.id > 0 && event.id > client.lastEventId) {
+      client.lastEventId = event.id;
+    }
+  }
 }
 
 export function broadcastPermission(sessionId: string, permissionId: string, eventId: number, toolName: string, toolInput: unknown): void {
