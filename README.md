@@ -13,7 +13,7 @@ Claude Code is a powerful CLI tool, but sometimes you want a browser-based inter
 ## Features
 
 - **Chat UI** — Claude.ai-style chat with markdown rendering, user/assistant bubbles
-- **Diff Review** — VS Code-style Monaco diff viewer for Edit/Write tool calls (click to expand)
+- **Diff Review** — VS Code-style Monaco diff viewer for Edit/Write tool calls (click to expand). Multiple edits to the same file are grouped into a single card with a combined diff. Hunk-based display for distant changes.
 - **Streaming Output** — live preview card while Claude is responding (via tmux capture)
 - **Session Management** — switch between sessions, history persisted per-session alongside Claude's JSONL
 - **Command Autocomplete** — type `/` for slash commands with sub-options (`/model`, `/effort`, `/permission-mode`)
@@ -135,6 +135,8 @@ Click the session ID in the header bar to see recent sessions. Click one to swit
 
 ### Diff Review
 Click any Edit/Write tool card in the chat to open a Monaco diff viewer. Click "View full file" to load the complete file on demand.
+
+When Claude makes multiple edits to the same file in one turn, they are automatically grouped into a single card showing "(N edits)" with a combined before/after diff. Distant changes within a file are shown as separate hunks rather than one giant block.
 
 ### Theme
 Click the sun/moon icon in the header to toggle light/dark theme.
