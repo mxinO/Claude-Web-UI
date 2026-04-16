@@ -527,10 +527,18 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       pendingSnapshots.delete(tool_use_id);
     }
 
+    // Don't store tool_response for Read — it's just file content already on disk.
+    // For Write, strip the 'content' field from tool_input — we have the diff in file_before.
+    let storedInput = tool_input ? JSON.stringify(tool_input) : null;
+    if (tool_name === 'Write' && tool_input) {
+      const { content: _, ...rest } = tool_input;
+      storedInput = JSON.stringify(rest);
+    }
+
     const eventId = insertEvent(session_id, 'tool_result', {
       tool_name: tool_name ?? null,
-      tool_input: tool_input ? JSON.stringify(tool_input) : null,
-      tool_response: tool_response ? JSON.stringify(tool_response) : null,
+      tool_input: storedInput,
+      tool_response: tool_name === 'Read' ? null : (tool_response ? JSON.stringify(tool_response) : null),
       status: 'completed',
       agent_id: agent_id ?? null,
       agent_type: agent_type ?? null,
