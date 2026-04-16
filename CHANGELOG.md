@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.2 — 2026-04-16
+
+### New Features
+- **File/folder creation** — create new files (📄+) and folders (📁+) from the file explorer, per directory and from the root header
+- **File editing** — in-browser Monaco editor with syntax highlighting, launched via ✎ button. Unsaved changes prompt confirmation on close
+- **File upload/download** — upload files to any directory (↑ button), download individual files (↓ button)
+- **Token authentication** — random access token generated each start, cookie-based session (httpOnly, sameSite strict, 7-day expiry). `--no-auth` to disable
+- **CLI args** — `--host`, `--port`, `--no-auth` flags for `start.sh` and `npm start`
+- **GFM markdown tables** — GitHub Flavored Markdown table rendering with themed styles (remark-gfm)
+
+### Security
+- `isPathSafe` now confines all file operations to Claude's working directory (prevents path traversal)
+- Hook endpoints restricted to localhost only
+- WebSocket auth via cookie check during upgrade handshake (close code 4401)
+- Server error messages sanitized — no internal paths leaked to client
+- Removed `recursive: true` from mkdir endpoint
+
+### Fixes
+- Slash command routing no longer triggers on file paths starting with `/`
+- Default server bind changed from `0.0.0.0` to `localhost` (safe for SSH port forwarding)
+- Circular dependency between index.ts and websocket.ts resolved (extracted auth.ts)
+- Status message color uses explicit ok/error type instead of substring matching
+- Editor uses `key={path}` to prevent stale content on reopen
+
+### Docs
+- README: file explorer CRUD and editor documentation
+- README: updated security section for CWD-confined file access
+- README: auth usage and CLI args
+
+---
+
 ## v1.1 — 2026-04-15
 
 ### New Features
