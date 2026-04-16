@@ -9,7 +9,7 @@ const LINE_HEIGHT = 20; // px
 // Fallback commands for mock mode or if API is unavailable
 const FALLBACK_COMMANDS = [
   { command: '/btw', description: 'Ask a side question without interrupting the main conversation' },
-  { command: '/model', description: 'Switch model (opus, sonnet, haiku)' },
+  { command: '/model', description: 'Switch model (default, opus, sonnet, haiku, 1M variants)' },
   { command: '/plan', description: 'Toggle plan mode — Claude plans before acting' },
   { command: '/compact', description: 'Compact conversation to free context' },
   { command: '/effort', description: 'Set effort level (low, medium, high, max)' },
@@ -39,9 +39,11 @@ const HIDDEN_COMMANDS = new Set(['/exit']);
 
 // Sub-options for commands with known arguments
 const MODEL_OPTIONS = [
-  { value: 'opus', label: 'Opus 4.6 (1M context)' },
-  { value: 'sonnet', label: 'Sonnet 4.6' },
-  { value: 'haiku', label: 'Haiku 4.5' },
+  { value: 'default', label: 'Default' },
+  { value: 'sonnet[1m]', label: 'Sonnet (1M context)' },
+  { value: 'opus[1m]', label: 'Opus (1M context)' },
+  { value: 'haiku', label: 'Haiku' },
+  { value: 'opus', label: 'Opus' },
 ];
 
 const EFFORT_OPTIONS = [
