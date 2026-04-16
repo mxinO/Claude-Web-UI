@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import Header from './components/Header';
 import ChatMessage from './components/ChatMessage';
 import DetailModal from './components/DetailModal';
@@ -13,6 +13,78 @@ import type { QueuedMessage } from './hooks/useWebSocket';
 import { useEventStore } from './hooks/useEventStore';
 import type { TimelineEvent } from './types';
 import './App.css';
+
+/** Extract file_path from a tool_result event's tool_input JSON */
+function getEditFilePath(event: TimelineEvent): string | null {
+  if (event.event_type !== 'tool_result') return null;
+  const name = (event.tool_name ?? '').toLowerCase();
+  if (name !== 'edit') return null;
+  try {
+    const input = JSON.parse(event.tool_input || '{}');
+    return input.file_path || null;
+  } catch { return null; }
+}
+
+export interface EditGroup {
+  events: TimelineEvent[];
+  filePath: string;
+}
+
+/** Check if an event is a tool call (tool_result or tool_running) */
+function isToolEvent(event: TimelineEvent): boolean {
+  return event.event_type === 'tool_result' || event.event_type === 'tool_running';
+}
+
+/** Group Edit tool_result events targeting the same file within a contiguous
+ *  block of tool calls. Other tool events (Read, Bash, etc.) between edits
+ *  don't break the grouping — only non-tool events (assistant_message,
+ *  user_message, etc.) do. */
+function groupEditEvents(events: TimelineEvent[]): Array<TimelineEvent | EditGroup> {
+  const result: Array<TimelineEvent | EditGroup> = [];
+  let i = 0;
+  while (i < events.length) {
+    // Find contiguous tool blocks
+    if (!isToolEvent(events[i])) {
+      result.push(events[i]);
+      i++;
+      continue;
+    }
+
+    // Scan the full tool block (until a non-tool event)
+    let blockEnd = i;
+    while (blockEnd < events.length && isToolEvent(events[blockEnd])) blockEnd++;
+
+    // Collect Edit events per file within this block
+    const editsByFile = new Map<string, TimelineEvent[]>();
+    for (let j = i; j < blockEnd; j++) {
+      const fp = getEditFilePath(events[j]);
+      if (fp) {
+        if (!editsByFile.has(fp)) editsByFile.set(fp, []);
+        editsByFile.get(fp)!.push(events[j]);
+      }
+    }
+
+    // Emit events in original order, replacing grouped edits with EditGroup
+    const groupedFiles = new Set<string>();
+    for (let j = i; j < blockEnd; j++) {
+      const fp = getEditFilePath(events[j]);
+      if (fp && editsByFile.has(fp)) {
+        if (groupedFiles.has(fp)) continue; // already emitted as group
+        groupedFiles.add(fp);
+        const group = editsByFile.get(fp)!;
+        if (group.length > 1) {
+          result.push({ events: group, filePath: fp });
+        } else {
+          result.push(group[0]);
+        }
+      } else {
+        result.push(events[j]);
+      }
+    }
+    i = blockEnd;
+  }
+  return result;
+}
 
 const SIDEBAR_MIN = 150;
 const SIDEBAR_MAX = 600;
@@ -39,6 +111,8 @@ export default function App() {
   });
   const resizingRef = useRef(false);
   const { events, addEvent, removeLastUserMessage, session, setSession, loadOlderEvents, hasMore, reconnectSummary } = useEventStore();
+
+  const groupedEvents = useMemo(() => groupEditEvents(events), [events]);
 
   const onQueueChange = useCallback((queue: QueuedMessage[]) => {
     setMessageQueue(queue);
@@ -295,9 +369,25 @@ export default function App() {
                 <div className="chat-empty">Waiting for messages...</div>
               )}
 
-              {events.map((event) => (
-                <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
-              ))}
+              {groupedEvents.map((item) => {
+                if ('filePath' in item) {
+                  // Grouped edits — render as single card using the last event (has final diff)
+                  const group = item as EditGroup;
+                  const last = group.events[group.events.length - 1];
+                  return (
+                    <ChatMessage
+                      key={`group-${group.events[0].id}`}
+                      event={last}
+                      onOpenDetail={handleOpenDetail}
+                      editGroup={group}
+                    />
+                  );
+                }
+                const event = item as TimelineEvent;
+                return (
+                  <ChatMessage key={event.id} event={event} onOpenDetail={handleOpenDetail} />
+                );
+              })}
 
               {/* Streaming: compact card showing work in progress */}
               {streamingText && (

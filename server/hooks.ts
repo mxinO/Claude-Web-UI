@@ -70,11 +70,56 @@ function snapshotFile(filePath: string): string | null {
 
 const CONTEXT_LINES = 20;
 
+const HUNK_SEPARATOR = '\n~~~ ... ~~~\n';
+
+/** Build hunk-based before/after snippets from two sets of lines.
+ *  Groups changed lines within 2*CONTEXT_LINES into single hunks,
+ *  each with CONTEXT_LINES of surrounding context.
+ *  Returns null if there are no changes. */
+function buildHunks(
+  beforeLines: string[], afterLines: string[]
+): { before: string; after: string } | null {
+  const maxLen = Math.max(beforeLines.length, afterLines.length);
+  const changedLineNums: number[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    if (beforeLines[i] !== afterLines[i]) changedLineNums.push(i);
+  }
+  if (changedLineNums.length === 0) return null;
+
+  // Merge changed lines that are close together into hunks
+  const hunks: Array<{ start: number; end: number }> = [];
+  let hunkStart = changedLineNums[0];
+  let hunkEnd = changedLineNums[0];
+  for (let i = 1; i < changedLineNums.length; i++) {
+    if (changedLineNums[i] - hunkEnd <= CONTEXT_LINES * 2) {
+      hunkEnd = changedLineNums[i];
+    } else {
+      hunks.push({ start: hunkStart, end: hunkEnd });
+      hunkStart = changedLineNums[i];
+      hunkEnd = changedLineNums[i];
+    }
+  }
+  hunks.push({ start: hunkStart, end: hunkEnd });
+
+  // Build before/after strings with context around each hunk
+  const beforeParts: string[] = [];
+  const afterParts: string[] = [];
+  for (const hunk of hunks) {
+    const lo = Math.max(0, hunk.start - CONTEXT_LINES);
+    const hi = Math.min(maxLen - 1, hunk.end + CONTEXT_LINES);
+    beforeParts.push(beforeLines.slice(lo, hi + 1).join('\n'));
+    afterParts.push(afterLines.slice(lo, hi + 1).join('\n'));
+  }
+
+  return {
+    before: beforeParts.join(HUNK_SEPARATOR),
+    after: afterParts.join(HUNK_SEPARATOR),
+  };
+}
+
 /**
  * Build a context-only diff snippet for an Edit operation.
  * Uses the real before-snapshot (from PreToolUse) and the current file (post-edit).
- * Returns { before, after } snippets with CONTEXT_LINES of surrounding context,
- * or null if the files can't be read.
  */
 function buildEditSnippet(
   filePath: string, beforeContent: string | null
@@ -82,33 +127,7 @@ function buildEditSnippet(
   try {
     const afterContent = fs.readFileSync(filePath, 'utf8');
     if (beforeContent === null) return { before: '', after: afterContent };
-
-    const beforeLines = beforeContent.split('\n');
-    const afterLines = afterContent.split('\n');
-
-    // Find all changed line ranges
-    const maxLen = Math.max(beforeLines.length, afterLines.length);
-    const changedLineNums = new Set<number>();
-    for (let i = 0; i < maxLen; i++) {
-      if (beforeLines[i] !== afterLines[i]) changedLineNums.add(i);
-    }
-    if (changedLineNums.size === 0) return null; // no changes — edit failed or no-op
-
-    // Find min/max changed lines without spreading (safe for large sets)
-    let minChanged = maxLen, maxChanged = 0;
-    for (const n of changedLineNums) {
-      if (n < minChanged) minChanged = n;
-      if (n > maxChanged) maxChanged = n;
-    }
-
-    // Build context window around all changes
-    const minLine = Math.max(0, minChanged - CONTEXT_LINES);
-    const maxLine = Math.min(maxLen - 1, maxChanged + CONTEXT_LINES);
-
-    return {
-      before: beforeLines.slice(minLine, maxLine + 1).join('\n'),
-      after: afterLines.slice(minLine, maxLine + 1).join('\n'),
-    };
+    return buildHunks(beforeContent.split('\n'), afterContent.split('\n'));
   } catch {
     return null;
   }
@@ -117,25 +136,23 @@ function buildEditSnippet(
 /**
  * Build a snippet for a Write operation.
  * For the "before" state, use the snapshot from PreToolUse (or empty for new files).
- * Only store up to a preview — full file available on demand via API.
  */
 const MAX_WRITE_PREVIEW_LINES = 500;
 
 function buildWriteSnippet(beforeContent: string | null, newContent: string): { before: string; after: string } {
-  const before = beforeContent || '';
-  const afterLines = newContent.split('\n');
-  const beforeLines = before.split('\n');
-
-  // If small enough, store the whole thing
-  if (afterLines.length <= MAX_WRITE_PREVIEW_LINES && beforeLines.length <= MAX_WRITE_PREVIEW_LINES) {
-    return { before, after: newContent };
+  // New file — just show the content (truncated if huge)
+  if (!beforeContent) {
+    const lines = newContent.split('\n');
+    if (lines.length <= MAX_WRITE_PREVIEW_LINES) return { before: '', after: newContent };
+    return {
+      before: '',
+      after: lines.slice(0, MAX_WRITE_PREVIEW_LINES).join('\n') + '\n... (truncated)',
+    };
   }
-
-  // Otherwise store just the first N lines as preview
-  return {
-    before: beforeLines.slice(0, MAX_WRITE_PREVIEW_LINES).join('\n') + (beforeLines.length > MAX_WRITE_PREVIEW_LINES ? '\n... (truncated)' : ''),
-    after: afterLines.slice(0, MAX_WRITE_PREVIEW_LINES).join('\n') + (afterLines.length > MAX_WRITE_PREVIEW_LINES ? '\n... (truncated)' : ''),
-  };
+  // Existing file overwrite — use hunk-based diff
+  // Fallback (null = no changes): return empty strings instead of full file content
+  return buildHunks(beforeContent.split('\n'), newContent.split('\n'))
+    ?? { before: '', after: '' };
 }
 
 const tmuxSession = process.env.CLAUDE_TMUX_SESSION || 'claude';
@@ -302,6 +319,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       return;
     }
     ensureSession(session_id, cwd);
+    // Clear per-turn file snapshots for this session (new turn starting)
+    for (const key of turnSnapshots.keys()) {
+      if (key.startsWith(session_id + ':')) turnSnapshots.delete(key);
+    }
     const rawText = prompt ?? user_input ?? null;
     const msgText = cleanUserMessage(rawText);
 
@@ -353,6 +374,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     ensureSession(session_id, cwd);
     // Stop streaming — the final message is here
     stopStreaming();
+    // Clear per-turn file snapshots for this session (turn is ending)
+    for (const key of turnSnapshots.keys()) {
+      if (key.startsWith(session_id + ':')) turnSnapshots.delete(key);
+    }
     const eventId = insertEvent(session_id, 'assistant_message', {
       message_text: last_assistant_message ?? assistant_message ?? null,
       status: stop_reason ?? 'end_turn',
@@ -371,6 +396,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   // The tool_use_id links PreToolUse to PostToolUse.
   const pendingSnapshots = new Map<string, { fileBefore: string | null; sessionId: string; ts: number }>();
 
+  // Track first-edit snapshots per file per turn.
+  // Key: "sessionId:filePath", Value: { content, ts }.
+  // Cleared on stop/user-prompt (turn boundary), with TTL-based safety net.
+  // Only used for Edit (not Write) — a Write creates a new file baseline,
+  // so subsequent Edits should snapshot the post-Write state.
+  const turnSnapshots = new Map<string, { content: string | null; ts: number }>();
+
   // Periodically clean up entries older than 10 minutes to prevent unbounded growth
   const SNAPSHOT_TTL_MS = 10 * 60 * 1000; // 10 minutes
   const snapshotCleanupTimer = setInterval(() => {
@@ -379,6 +411,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       if (now - entry.ts > SNAPSHOT_TTL_MS) {
         pendingSnapshots.delete(key);
       }
+    }
+    // Also clean up stale turnSnapshots (safety net if stop/user-prompt hooks don't fire)
+    for (const [key, entry] of turnSnapshots) {
+      if (now - entry.ts > SNAPSHOT_TTL_MS) turnSnapshots.delete(key);
     }
   }, 60_000); // run every 60 seconds
   snapshotCleanupTimer.unref?.(); // don't keep process alive
@@ -398,10 +434,22 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     // Stop streaming when a tool starts
     stopStreaming();
 
-    // Snapshot file before Edit/Write overwrites it
+    // Snapshot file before Edit/Write overwrites it.
+    // For Edit: only snapshot on the FIRST edit to a file this turn.
+    // Subsequent edits reuse the original snapshot so we get a combined diff.
     let fileBefore: string | null = null;
     if ((tool_name === 'Write' || tool_name === 'Edit') && tool_input && typeof tool_input.file_path === 'string') {
-      fileBefore = snapshotFile(tool_input.file_path);
+      const fp = tool_input.file_path;
+      const turnKey = `${session_id}:${fp}`;
+      if (tool_name === 'Edit' && turnSnapshots.has(turnKey)) {
+        // Reuse the original snapshot from the first edit this turn
+        fileBefore = turnSnapshots.get(turnKey)!.content;
+      } else {
+        fileBefore = snapshotFile(fp);
+        if (tool_name === 'Edit') {
+          turnSnapshots.set(turnKey, { content: fileBefore, ts: Date.now() });
+        }
+      }
     }
 
     // Store snapshot keyed by tool_use_id (or stable fallback key for Edit/Write tools)

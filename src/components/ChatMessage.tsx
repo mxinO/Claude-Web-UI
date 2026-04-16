@@ -1,11 +1,13 @@
 import { useMemo } from 'react';
 import type { TimelineEvent } from '../types';
+import type { EditGroup } from '../App';
 import { MarkdownView } from './MarkdownView';
 import PermissionBar from './PermissionBar';
 
 interface ChatMessageProps {
   event: TimelineEvent;
   onOpenDetail: (event: TimelineEvent) => void;
+  editGroup?: EditGroup;
 }
 
 /* ── Icon helpers ──────────────────────────────────────────────── */
@@ -67,7 +69,7 @@ function formatTime(ts: string): string {
 
 /* ── Main component ───────────────────────────────────────────── */
 
-export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
+export default function ChatMessage({ event, onOpenDetail, editGroup }: ChatMessageProps) {
   const { event_type, tool_name } = event;
   const time = useMemo(() => formatTime(event.timestamp), [event.timestamp]);
 
@@ -109,7 +111,10 @@ export default function ChatMessage({ event, onOpenDetail }: ChatMessageProps) {
   // ── Tool use / tool result ─────────────────────────────────
   if (event_type === 'tool_use' || event_type === 'tool_result' || event_type === 'tool_running') {
     const icon = getToolIcon(tool_name ?? '');
-    const summary = getToolSummary(event);
+    let summary = getToolSummary(event);
+    if (editGroup && editGroup.events.length > 1) {
+      summary += ` (${editGroup.events.length} edits)`;
+    }
     const isPending = event.status === 'pending' || event.status === 'running';
     const statusClass =
       event.status === 'error' ? 'tool-card--error' :
