@@ -69,16 +69,28 @@ command -v tmux >/dev/null 2>&1 || { echo "Error: tmux is required. Install it w
 command -v claude >/dev/null 2>&1 || { echo "Error: Claude Code CLI is required. Install from: https://claude.ai/code"; exit 1; }
 command -v jq >/dev/null 2>&1 || echo "Warning: jq is recommended for permission handling. Install with: apt install jq"
 
+# Save terminal state before anything can break it
+SAVED_STTY=$(stty -g 2>/dev/null || true)
+
 # Cleanup on exit (Ctrl+C, SIGTERM, or normal exit)
 cleanup() {
   echo ""
   echo "Shutting down..."
+  # Kill the server process first
+  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
   tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
   rm -f "$PID_FILE"
-  # Restore terminal settings (tmux/Claude can leave them broken)
-  stty sane 2>/dev/null || true
+  # Restore terminal to saved state
+  if [ -n "${SAVED_STTY:-}" ]; then
+    stty "$SAVED_STTY" 2>/dev/null || true
+  else
+    stty sane 2>/dev/null || true
+  fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 if [ "$HOST" = "0.0.0.0" ]; then
   DISPLAY_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
