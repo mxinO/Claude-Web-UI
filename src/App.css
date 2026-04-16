@@ -177,6 +177,25 @@ body {
   cursor: default;
 }
 
+.editor-save-btn {
+  background: var(--text-accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.editor-save-btn:hover {
+  opacity: 0.85;
+}
+
+.editor-save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ── Header ────────────────────────────────────────────────────── */
 
 .header {

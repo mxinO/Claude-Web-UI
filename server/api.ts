@@ -31,8 +31,10 @@ function isPathSafe(filePath: string): boolean {
   try {
     const resolved = path.resolve(filePath);
     if (filePath.includes('..')) return false;
-    // Only block obviously sensitive paths — no root restriction.
-    // This is a personal dev tool; the user has full filesystem access anyway.
+    // Confine to Claude's working directory
+    const root = getClaudeCwd();
+    if (resolved !== root && !resolved.startsWith(root + '/')) return false;
+    // Block sensitive dotfiles/dirs
     const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.env'];
     if (blocked.some(b => resolved.includes('/' + b + '/') || resolved.endsWith('/' + b))) return false;
     return true;
@@ -576,8 +578,48 @@ export function registerApiRoutes(app: Express): void {
       const existed = fs.existsSync(destPath);
       fs.writeFileSync(destPath, req.body);
       res.json({ ok: true, path: destPath, size: (req.body as Buffer).length, overwritten: existed });
-    } catch (err) {
-      res.status(500).json({ error: `Upload failed: ${err}` });
+    } catch {
+      res.status(500).json({ error: 'Upload failed' });
+    }
+  });
+
+  // Create a new directory
+  router.post('/mkdir', (req, res) => {
+    const { dirPath } = req.body as { dirPath?: string };
+    if (!dirPath) { res.status(400).json({ error: 'dirPath required' }); return; }
+    if (!isPathSafe(dirPath)) { res.status(403).json({ error: 'Access denied' }); return; }
+    try {
+      const resolved = path.resolve(dirPath);
+      if (fs.existsSync(resolved)) {
+        res.status(409).json({ error: 'Already exists' });
+        return;
+      }
+      fs.mkdirSync(resolved);
+      res.json({ ok: true, path: resolved });
+    } catch {
+      res.status(500).json({ error: 'Failed to create directory' });
+    }
+  });
+
+  // Write/save a file (for file editor)
+  router.post('/write-file', (req, res) => {
+    const { filePath, content } = req.body as { filePath?: string; content?: string };
+    if (!filePath || typeof content !== 'string') {
+      res.status(400).json({ error: 'filePath and content required' });
+      return;
+    }
+    if (!isPathSafe(filePath)) { res.status(403).json({ error: 'Access denied' }); return; }
+    try {
+      const resolved = path.resolve(filePath);
+      const parentDir = path.dirname(resolved);
+      if (!fs.existsSync(parentDir)) {
+        res.status(400).json({ error: 'Parent directory does not exist' });
+        return;
+      }
+      fs.writeFileSync(resolved, content, 'utf-8');
+      res.json({ ok: true, path: resolved, size: Buffer.byteLength(content) });
+    } catch {
+      res.status(500).json({ error: 'Failed to write file' });
     }
   });
 

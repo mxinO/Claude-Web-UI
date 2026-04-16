@@ -1,4 +1,9 @@
-import { useState, useCallback, useEffect, useRef, type ChangeEvent } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense, type ChangeEvent } from 'react';
+import { detectLanguage } from '../lib/detectLanguage';
+
+const LazyEditor = lazy(() =>
+  import('@monaco-editor/react').then((m) => ({ default: m.default }))
+);
 
 interface DirEntry {
   name: string;
@@ -20,9 +25,12 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const [roots, setRoots] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewFile, setViewFile] = useState<{ path: string; content: string } | null>(null);
+  const [editFile, setEditFile] = useState<{ path: string; content: string } | null>(null);
+  const editContentRef = useRef<string>('');
+  const [editSaving, setEditSaving] = useState(false);
   const [cwdLabel, setCwdLabel] = useState<string>('');
   const [cwdFull, setCwdFull] = useState<string>('');
-  const [statusMsg, setStatusMsg] = useState<string>('');
+  const [statusMsg, setStatusMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const loadedRef = useRef(false);
 
   const loadDir = useCallback(async (dirPath: string): Promise<DirEntry[]> => {
@@ -125,6 +133,11 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadDirRef = useRef<string>('');
 
+  const showStatus = useCallback((msg: string, ok = true, duration = 3000) => {
+    setStatusMsg({ text: msg, ok });
+    if (duration > 0) setTimeout(() => setStatusMsg(null), duration);
+  }, []);
+
   const triggerUpload = useCallback((dirPath: string) => {
     uploadDirRef.current = dirPath;
     uploadInputRef.current?.click();
@@ -149,14 +162,80 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
     // Reset input so the same file can be re-uploaded
     e.target.value = '';
     if (failed > 0) {
-      setStatusMsg(`Uploaded ${ok}, failed ${failed}`);
+      showStatus(`Uploaded ${ok}, failed ${failed}`, false);
     } else {
-      setStatusMsg(`Uploaded ${ok} file${ok > 1 ? 's' : ''}`);
+      showStatus(`Uploaded ${ok} file${ok > 1 ? 's' : ''}`);
     }
-    setTimeout(() => setStatusMsg(''), 3000);
     // Refresh to show new files
     refreshRoot();
-  }, [refreshRoot]);
+  }, [refreshRoot, showStatus]);
+
+  const handleCreateFolder = useCallback(async (parentDir: string) => {
+    const name = prompt('New folder name:');
+    if (!name) return;
+    try {
+      const res = await fetch('/api/mkdir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dirPath: `${parentDir}/${name}` }),
+      });
+      if (res.ok) { showStatus(`Created folder: ${name}`); refreshRoot(); }
+      else { const d = await res.json(); showStatus(d.error || 'Failed', false); }
+    } catch { showStatus('Failed to create folder', false); }
+  }, [refreshRoot, showStatus]);
+
+  const handleCreateFile = useCallback(async (parentDir: string) => {
+    const name = prompt('New file name:');
+    if (!name) return;
+    try {
+      const filePath = `${parentDir}/${name}`;
+      const res = await fetch('/api/write-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath, content: '' }),
+      });
+      if (res.ok) { showStatus(`Created file: ${name}`); refreshRoot(); }
+      else { const d = await res.json(); showStatus(d.error || 'Failed', false); }
+    } catch { showStatus('Failed to create file', false); }
+  }, [refreshRoot, showStatus]);
+
+  const handleEdit = useCallback(async (filePath: string) => {
+    try {
+      const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const content = data.content || '';
+      editContentRef.current = content;
+      setEditFile({ path: data.path || filePath, content });
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editFile) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/write-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: editFile.path, content: editContentRef.current }),
+      });
+      if (res.ok) {
+        showStatus('Saved');
+        setEditFile(null);
+      } else {
+        const d = await res.json();
+        showStatus(d.error || 'Save failed', false);
+      }
+    } catch { showStatus('Save failed', false); }
+    finally { setEditSaving(false); }
+  }, [editFile, showStatus]);
+
+  const closeEditor = useCallback(() => {
+    if (editFile && editContentRef.current !== editFile.content) {
+      if (!window.confirm('You have unsaved changes. Discard?')) return;
+    }
+    setEditFile(null);
+  }, [editFile]);
 
   const renderTree = (nodes: TreeNode[], depth: number, parentPath: string[]): JSX.Element[] => {
     return nodes.map((node) => (
@@ -187,27 +266,17 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
               +
             </button>
             {node.entry.isDir && (
-              <button
-                title="Upload file here"
-                onClick={() => triggerUpload(node.entry.path)}
-              >
-                ↑
-              </button>
+              <>
+                <button title="New folder" onClick={() => handleCreateFolder(node.entry.path)}>📁+</button>
+                <button title="New file" onClick={() => handleCreateFile(node.entry.path)}>📄+</button>
+                <button title="Upload file here" onClick={() => triggerUpload(node.entry.path)}>↑</button>
+              </>
             )}
             {!node.entry.isDir && (
               <>
-                <button
-                  title="View file"
-                  onClick={() => handleView(node.entry.path)}
-                >
-                  👁
-                </button>
-                <button
-                  title="Download file"
-                  onClick={() => handleDownload(node.entry.path)}
-                >
-                  ↓
-                </button>
+                <button title="Edit file" onClick={() => handleEdit(node.entry.path)}>✎</button>
+                <button title="View file" onClick={() => handleView(node.entry.path)}>👁</button>
+                <button title="Download file" onClick={() => handleDownload(node.entry.path)}>↓</button>
               </>
             )}
           </span>
@@ -222,6 +291,20 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
       <div className="file-explorer-header">
         <span>Explorer</span>
         {cwdLabel && <span className="file-explorer-cwd" title={cwdFull}>{cwdLabel}</span>}
+        <button
+          className="file-explorer-refresh"
+          onClick={() => handleCreateFolder(cwdFull || '.')}
+          title="New folder"
+        >
+          📁+
+        </button>
+        <button
+          className="file-explorer-refresh"
+          onClick={() => handleCreateFile(cwdFull || '.')}
+          title="New file"
+        >
+          📄+
+        </button>
         <button
           className="file-explorer-refresh"
           onClick={() => triggerUpload(cwdFull || '.')}
@@ -240,8 +323,8 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
         {loading && <span className="file-explorer-loading">...</span>}
       </div>
       {statusMsg && (
-        <div style={{ fontSize: 11, padding: '2px 8px', color: statusMsg.includes('failed') ? 'var(--red)' : 'var(--green)' }}>
-          {statusMsg}
+        <div style={{ fontSize: 11, padding: '2px 8px', color: statusMsg.ok ? 'var(--green)' : 'var(--red)' }}>
+          {statusMsg.text}
         </div>
       )}
       <div className="file-explorer-tree">
@@ -270,6 +353,47 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
             </div>
             <div className="modal-body">
               <pre className="bash-output" style={{ maxHeight: 'none' }}>{viewFile.content}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editFile && (
+        <div className="modal-overlay" onClick={closeEditor}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ width: '80vw', height: '80vh' }}>
+            <div className="modal-header">
+              <span className="modal-title">Edit: {editFile.path}</span>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button
+                  className="editor-save-btn"
+                  onClick={handleSaveEdit}
+                  disabled={editSaving}
+                >
+                  {editSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button className="modal-close" onClick={closeEditor}>
+                  &times;
+                </button>
+              </span>
+            </div>
+            <div className="modal-body" style={{ padding: 0 }}>
+              <Suspense fallback={<div style={{ padding: 20 }}>Loading editor...</div>}>
+                <LazyEditor
+                  key={editFile.path}
+                  defaultValue={editFile.content}
+                  language={detectLanguage(editFile.path)}
+                  theme="vs-dark"
+                  onChange={(v) => { editContentRef.current = v ?? ''; }}
+                  options={{
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                  }}
+                  height="100%"
+                />
+              </Suspense>
             </div>
           </div>
         </div>
