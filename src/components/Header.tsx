@@ -66,6 +66,23 @@ export default function Header({ session, connected }: HeaderProps) {
     setSwitching(false);
   }
 
+  async function handleNewSession() {
+    if (switching) return;
+    setPickerVisible(false);
+    setSwitching(true);
+    try {
+      const res = await fetch('/api/new-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd: displayCwd }),
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } catch { /* ignore */ }
+    setSwitching(false);
+  }
+
   // Mode badge color
   const modeColor = status.permissionMode === 'plan' ? 'var(--yellow)'
     : status.permissionMode === 'bypass' ? 'var(--red)'
@@ -96,6 +113,7 @@ export default function Header({ session, connected }: HeaderProps) {
               visible={pickerVisible}
               onClose={() => setPickerVisible(false)}
               onSelect={handleSessionSelect}
+              onNewSession={handleNewSession}
             />
           </span>
           {displayCwd && (

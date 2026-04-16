@@ -13,10 +13,11 @@ interface SessionPickerProps {
   visible: boolean;
   onClose: () => void;
   onSelect: (sessionId: string, cwd: string) => void;
+  onNewSession: () => void;
   cwd?: string;
 }
 
-export default function SessionPicker({ visible, onClose, onSelect, cwd }: SessionPickerProps) {
+export default function SessionPicker({ visible, onClose, onSelect, onNewSession, cwd }: SessionPickerProps) {
   const [sessions, setSessions] = useState<ClaudeSession[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -66,6 +67,13 @@ export default function SessionPicker({ visible, onClose, onSelect, cwd }: Sessi
         onClick={(e) => { e.stopPropagation(); onClose(); }}
       />
       <div className="session-picker" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="session-picker-item session-picker-new"
+          onClick={() => { onNewSession(); onClose(); }}
+        >
+          <span style={{ fontSize: 14 }}>+</span>
+          <span>New Session</span>
+        </div>
         {loading && (
           <div style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: 12 }}>
             Loading sessions...

@@ -739,6 +739,43 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
+  // POST /api/new-session — kill current Claude, start a fresh session (no --resume)
+  router.post('/new-session', async (req, res) => {
+    const { cwd } = req.body as { cwd?: string };
+    try {
+      stopStreaming();
+      resetQueue();
+
+      stopClaudeSession();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      setManagedSessionId(null);
+      setWaitingForSessionStart(true);
+
+      const targetCwd = cwd || process.cwd();
+      const __dirname = path.dirname(new URL(import.meta.url).pathname);
+      const hooksSettings = path.join(__dirname, '..', 'data', 'hooks-settings.json');
+      console.log(`[new-session] starting fresh in ${targetCwd}`);
+      startClaudeSession(`--settings ${hooksSettings}`, targetCwd);
+
+      for (let i = 0; i < 40; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (getManagedSessionId()) break;
+      }
+
+      if (!getManagedSessionId()) {
+        console.warn('[new-session] SessionStart hook did not fire within timeout');
+        setWaitingForSessionStart(false);
+      } else {
+        console.log(`[new-session] ready, managed=${getManagedSessionId()}`);
+      }
+
+      res.json({ ok: true, cwd: targetCwd, ready: !!getManagedSessionId() });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // GET /api/claude-sessions — list recent Claude Code JSONL sessions
   // Optional ?cwd= to filter to a specific project directory
   router.get('/claude-sessions', (req, res) => {
