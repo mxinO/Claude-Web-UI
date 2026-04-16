@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#1a1a2e"/>
+  <text x="6" y="45" font-family="monospace" font-weight="bold" font-size="30" fill="#e0e0e0">C</text>
+  <text x="25" y="45" font-family="monospace" font-weight="bold" font-size="30" fill="#da7756">&gt;</text>
+  <line x1="42" y1="35" x2="56" y2="35" stroke="#da7756" stroke-width="3.5" stroke-linecap="round"/>
+</svg>
