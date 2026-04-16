@@ -16,6 +16,7 @@ import type { DbEvent } from './types.js';
 import { startStreaming, stopStreaming } from './streaming.js';
 import { addAllowedRoot } from './api.js';
 import { setClaudeBusy, setSessionIdGetter } from './queue.js';
+import { TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
@@ -155,14 +156,11 @@ function buildWriteSnippet(beforeContent: string | null, newContent: string): { 
     ?? { before: '', after: '' };
 }
 
-const tmuxSession = process.env.CLAUDE_TMUX_SESSION || 'claude';
-const tmuxPane = process.env.CLAUDE_TMUX_PANE || '0';
-
 /** Read the current Claude permission mode from the tmux status bar. */
 function getCurrentPermissionMode(): string | null {
   try {
     const capture = execSync(
-      `tmux capture-pane -t ${tmuxSession}:${tmuxPane} -p -S -3`,
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
       { encoding: 'utf-8', timeout: 3000 }
     );
     if (capture.includes('plan mode')) return 'plan';

@@ -16,7 +16,7 @@ import {
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
 import { exec, execSync, ChildProcess } from 'child_process';
-import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
+import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
@@ -325,7 +325,7 @@ export function registerApiRoutes(app: Express): void {
       // Stop streaming poll first
       stopStreaming();
       // Send Escape to tmux to interrupt
-      execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+      execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
       // Timing-sensitive: 500ms gives Claude time to restore the prompt before we capture pane output.
       // Too short → we capture mid-restore; too long → unnecessary latency on cancel.
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -336,7 +336,7 @@ export function registerApiRoutes(app: Express): void {
       let restoredText = '';
       try {
         const visible = execSync(
-          `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
+          `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
           { encoding: 'utf-8', timeout: 3000 }
         );
         // Get last few non-empty lines (the prompt area)
@@ -351,7 +351,7 @@ export function registerApiRoutes(app: Express): void {
 
       // Clear Claude's input and remove orphaned event from DB
       if (restoredText) {
-        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
+        execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
         // Delete the orphaned user_message from the DB
         const managedId = getManagedSessionId();
         if (managedId) {
@@ -388,7 +388,7 @@ export function registerApiRoutes(app: Express): void {
 
       // Capture pane AFTER to find the response
       const after = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -10`,
+        `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -10`,
         { encoding: 'utf-8', timeout: 3000 }
       );
 
@@ -421,7 +421,7 @@ export function registerApiRoutes(app: Express): void {
         await new Promise(resolve => setTimeout(resolve, 500));
         try {
           const capture = execSync(
-            `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -40`,
+            `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -40`,
             { encoding: 'utf-8', timeout: 3000 }
           );
           if (capture.includes('Esc to dismiss')) {
@@ -443,7 +443,7 @@ export function registerApiRoutes(app: Express): void {
       // Dismiss the popup only if it was actually shown
       if (lastCapture.includes('Esc to dismiss')) {
         try {
-          execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+          execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
         } catch { /* ignore */ }
       }
 
@@ -643,7 +643,7 @@ export function registerApiRoutes(app: Express): void {
       if (!model || !cwd || !effort || !permissionMode) {
         try {
           const headerCapture = execSync(
-            `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
+            `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
             { encoding: 'utf-8', timeout: 3000 }
           );
           if (!model) {
@@ -660,7 +660,7 @@ export function registerApiRoutes(app: Express): void {
           }
           if (!permissionMode) {
             const statusCapture = execSync(
-              `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
+              `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
               { encoding: 'utf-8', timeout: 3000 }
             );
             if (statusCapture.includes('plan mode')) permissionMode = 'plan';

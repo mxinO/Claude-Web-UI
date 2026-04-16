@@ -8,9 +8,7 @@
 
 import { execSync } from 'child_process';
 import { broadcast } from './websocket.js';
-
-const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
-const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
+import { TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 const POLL_INTERVAL = 400; // ms
 
 let polling = false;
@@ -35,7 +33,7 @@ export function startStreaming(sessionId: string): void {
   pollTimer = setInterval(() => {
     try {
       const paneContent = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -50`,
+        `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -50`,
         { encoding: 'utf-8', timeout: 2000 }
       );
       const parsed = parseClaudeOutput(paneContent);

@@ -94,6 +94,7 @@ npm run start:mock                                  # mock mode (no Claude, for 
 | `HOST` | `localhost` | Server bind address (overridden by `--host`) |
 | `CLAUDE_TMUX_SESSION` | `claude` | tmux session name |
 | `CLAUDE_TMUX_PANE` | `0` | tmux pane index |
+| `CLAUDE_TMUX_SOCKET` | `claude-webui` | Dedicated tmux socket. Hides the Claude session from external `tmux ls` / `tmux attach` (they'd need `-L <socket>` to reach it). |
 | `MAX_EVENT_AGE_DAYS` | `30` | Auto-prune events older than this |
 
 ## Usage

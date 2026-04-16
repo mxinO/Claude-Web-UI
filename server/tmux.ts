@@ -3,8 +3,20 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-export const TMUX_SESSION = process.env.CLAUDE_TMUX_SESSION || 'claude';
-export const TMUX_PANE = process.env.CLAUDE_TMUX_PANE || '0';
+// These values are interpolated directly into shell commands, so reject
+// anything outside a safe charset at module load.
+function validateTmuxName(name: string, varName: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+    throw new Error(`Invalid ${varName}: must match [A-Za-z0-9_-]+`);
+  }
+  return name;
+}
+export const TMUX_SESSION = validateTmuxName(process.env.CLAUDE_TMUX_SESSION || 'claude', 'CLAUDE_TMUX_SESSION');
+export const TMUX_PANE = validateTmuxName(process.env.CLAUDE_TMUX_PANE || '0', 'CLAUDE_TMUX_PANE');
+// Use a dedicated tmux socket so the session is invisible to `tmux ls`
+// and `tmux attach` from outside the web UI server.
+export const TMUX_SOCKET = validateTmuxName(process.env.CLAUDE_TMUX_SOCKET || 'claude-webui', 'CLAUDE_TMUX_SOCKET');
+export const TMUX = `tmux -L ${TMUX_SOCKET}`;
 const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout: 5000 };
 
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
@@ -19,10 +31,10 @@ export function sendInput(text: string): void {
   const bufName = 'webui-input';
   try {
     fs.writeFileSync(tmpFile, text);
-    execSync(`tmux load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
-    execSync(`tmux paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+    execSync(`${TMUX} load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
+    execSync(`${TMUX} paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
     // TUI needs a moment to process the bracketed paste before Enter can submit
-    execSync(`sleep 0.15 && tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+    execSync(`sleep 0.15 && ${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
   }
@@ -30,7 +42,7 @@ export function sendInput(text: string): void {
 
 export function getSessionStatus(): { alive: boolean; session: string } {
   try {
-    execSync(`tmux has-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);
+    execSync(`${TMUX} has-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);
     return { alive: true, session: TMUX_SESSION };
   } catch {
     return { alive: false, session: TMUX_SESSION };
@@ -44,7 +56,7 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
   }
   const dir = cwd || process.cwd();
   // cd first so Claude Code sees the correct project directory for --resume
-  const cmd = `tmux new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && claude ${args}"`;
+  const cmd = `${TMUX} new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && claude ${args}"`;
   execSync(cmd, execOpts);
 
   // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.
@@ -56,7 +68,7 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
     if (attempts > 20) { clearInterval(startupCheckInterval!); startupCheckInterval = null; return; }
     try {
       const paneContent = execSync(
-        `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -8`,
+        `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -8`,
         execOpts
       );
       const lastLines = paneContent.trim();
@@ -76,7 +88,7 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
           lastLines.includes('Yes, I trust') ||
           lastLines.includes('Dark mode') ||
           lastLines.includes('Press Enter to continue')) {
-        execSync(`tmux send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+        execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
         console.log('Auto-accepted startup prompt');
       }
     } catch {
@@ -87,7 +99,7 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
 
 export function stopClaudeSession(): void {
   try {
-    execSync(`tmux kill-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);
+    execSync(`${TMUX} kill-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);
   } catch {
     // already dead
   }

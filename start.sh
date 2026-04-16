@@ -8,6 +8,12 @@ HOST="${HOST:-localhost}"
 PORT="${PORT:-3001}"
 CWD=""
 TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
+TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude-webui}"
+# Reject anything outside a safe charset — these get interpolated into shell commands.
+for v in TMUX_SESSION TMUX_SOCKET; do
+  [[ "${!v}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Error: $v must match [A-Za-z0-9_-]+"; exit 1; }
+done
+TMUX="tmux -L $TMUX_SOCKET"
 PID_FILE="$SCRIPT_DIR/data/.server.pid"
 
 # Parse arguments
@@ -47,7 +53,7 @@ cleanup_previous() {
     rm -f "$PID_FILE"
   fi
   # Kill orphaned Claude tmux session
-  tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+  $TMUX kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 }
 
 cleanup_previous
@@ -82,7 +88,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+  $TMUX kill-session -t "$TMUX_SESSION" 2>/dev/null || true
   rm -f "$PID_FILE"
   # Restore terminal to saved state
   if [ -n "${SAVED_STTY:-}" ]; then

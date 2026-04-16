@@ -8,7 +8,7 @@ import { initDb, createSession, switchDb } from './db.js';
 import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.js';
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
-import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
+import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
 import { addAllowedRoot } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
@@ -173,7 +173,8 @@ server.listen(PORT, HOST, () => {
       }, 30_000);
     } catch (err) {
       console.error('Failed to start Claude tmux session:', err);
-      console.error(`You can start it manually: tmux new-session -d -s ${TMUX_SESSION} -c "${CLAUDE_CWD}" "claude"`);
+      console.error(`You can start it manually: ${TMUX} new-session -d -s ${TMUX_SESSION} -c "${CLAUDE_CWD}" "claude"`);
+      console.error(`  Then attach with: ${TMUX} attach -t ${TMUX_SESSION}`);
     }
   }
 
@@ -283,7 +284,7 @@ function setupHooks() {
 function bootstrapExistingSession() {
   try {
     const capture = execSync(
-      `tmux capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
       { encoding: 'utf-8', timeout: 3000 }
     );
     const modelMatch = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+/i);
