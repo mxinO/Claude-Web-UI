@@ -17,7 +17,7 @@ Claude Code is a powerful CLI tool, but sometimes you want a browser-based inter
 - **Streaming Output** — live preview card while Claude is responding (via tmux capture)
 - **Session Management** — switch between sessions, history persisted per-session alongside Claude's JSONL
 - **Command Autocomplete** — type `/` for slash commands with sub-options (`/model`, `/effort`, `/permission-mode`)
-- **File Explorer** — persistent sidebar with lazy directory loading, resizable width
+- **File Explorer** — persistent sidebar with lazy directory loading, resizable width, file/folder creation, upload/download, and in-browser editing (Monaco)
 - **File Autocomplete** — type `@` for file path suggestions resolved against Claude's CWD
 - **Shell Commands** — type `!command` to run shell commands directly from the input box
 - **`/btw` Support** — side questions shown as floating toast popups
@@ -120,6 +120,16 @@ Output appears as a styled card in the chat. Interactive commands (`vim`, `less`
 ### File References
 Type `@` to autocomplete file paths. The sidebar file explorer (toggle with the arrow button) lets you browse directories and insert paths with the `+` button.
 
+### File Explorer
+
+The sidebar file explorer supports:
+- **Browse** — expand/collapse directories, lazy-loaded
+- **Create** — new files and folders via 📁+ and 📄+ buttons (per directory and in the header)
+- **Upload** — upload files to any directory via the ↑ button
+- **Download** — download files via the ↓ button
+- **Edit** — open files in a Monaco editor with syntax highlighting (✎ button). Unsaved changes prompt a confirmation on close.
+- **View** — quick read-only preview (👁 button)
+
 ### Session Switching
 Click the session ID in the header bar to see recent sessions. Click one to switch — Claude restarts with `--resume` in the correct working directory.
 
@@ -136,7 +146,8 @@ claude-web-ui/
 ├── server/
 │   ├── index.ts          # Entry point — Express + WebSocket + tmux management
 │   ├── hooks.ts          # Hook endpoint handlers + per-session DB switching
-│   ├── api.ts            # Client API (sessions, events, commands, files)
+│   ├── api.ts            # Client API (sessions, events, commands, files, upload/download)
+│   ├── auth.ts           # Token-based authentication
 │   ├── db.ts             # SQLite (better-sqlite3) — sessions, events, permissions
 │   ├── websocket.ts      # WebSocket broadcast to browser
 │   ├── tmux.ts           # tmux send-keys + session lifecycle
@@ -147,6 +158,7 @@ claude-web-ui/
 │   │   ├── ChatMessage.tsx     # User/assistant bubbles, tool cards
 │   │   ├── DetailModal.tsx     # Monaco diff viewer, bash output, markdown
 │   │   ├── InputBox.tsx        # Textarea + autocomplete + file explorer
+│   │   ├── FileExplorer.tsx   # Sidebar file tree with CRUD and Monaco editor
 │   │   ├── Header.tsx          # Session picker, model/mode/effort badges
 │   │   ├── StreamingCard.tsx   # Live output preview card
 │   │   ├── BtwToast.tsx        # /btw side question popup
@@ -189,7 +201,7 @@ This is a **personal development tool**, not a production service. Be aware of:
 - **Token authentication** — Auth uses a random token set as an httpOnly cookie. The token changes every server restart. Hook endpoints are restricted to localhost. This is lightweight protection for a dev tool, not a production auth system.
 - **Permission approval** — The permission control UI (approve/deny tool calls) works but has **not been extensively tested** across all Claude Code versions and edge cases. Treat it as a convenience, not a security boundary. When running with elevated permission modes (`auto`, `bypassPermissions`), Claude acts without asking.
 - **Shell execution** — The `!command` feature runs commands directly on the host as the server's user. Interactive commands are blocked by a best-effort blocklist, and there is a 30-second timeout, but this is not a sandbox.
-- **File access** — The file explorer and `@` autocomplete only block a small set of sensitive dotfiles (`.ssh`, `.gnupg`, `.aws`, `.env`). All other files readable by the server process are accessible.
+- **File access** — The file explorer, editor, and file creation endpoints are confined to Claude's working directory. Sensitive dotfiles (`.ssh`, `.gnupg`, `.aws`, `.env`) are additionally blocked. The `@` autocomplete has the same restrictions.
 
 ## Known Limitations
 
