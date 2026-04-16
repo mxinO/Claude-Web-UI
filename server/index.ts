@@ -11,7 +11,7 @@ import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX_SESSION, TMUX_PANE } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
 import { addAllowedRoot } from './api.js';
-import { initAuth, getAuthToken, checkAuthCookie } from './auth.js';
+import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Parse CLI args: --host, --port, --mock, and positional CWD
@@ -64,7 +64,7 @@ if (AUTH_TOKEN) {
 
     // Check query param — set cookie and redirect to clean URL
     if (req.query.token === AUTH_TOKEN) {
-      res.cookie('webui_token', AUTH_TOKEN, {
+      res.cookie(getCookieName(), AUTH_TOKEN, {
         httpOnly: true,
         sameSite: 'strict',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
