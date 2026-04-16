@@ -74,6 +74,7 @@ SAVED_STTY=$(stty -g 2>/dev/null || true)
 
 # Cleanup on exit (Ctrl+C, SIGTERM, or normal exit)
 cleanup() {
+  trap - EXIT INT TERM  # prevent re-entry
   echo ""
   echo "Shutting down..."
   # Kill the server process first
