@@ -271,8 +271,14 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
 
-      // Slash commands always go directly (they're TUI commands, not prompts)
+      // Slash commands are TUI commands, not prompts — they don't queue.
+      // Reject when Claude is busy so the UI can warn the user instead of
+      // silently dropping the command (the TUI would ignore or misinterpret it).
       if (text.startsWith('/')) {
+        if (isClaudeBusy()) {
+          res.status(409).json({ error: 'Slash commands only work when Claude is idle — wait for the current response to finish.' });
+          return;
+        }
         sendInput(text);
         res.json({ ok: true });
         return;
@@ -378,6 +384,12 @@ export function registerApiRoutes(app: Express): void {
     const { text } = req.body as { text?: string };
     if (typeof text !== 'string') {
       res.status(400).json({ error: 'text (string) is required' });
+      return;
+    }
+    // TUI commands only work at idle — otherwise the pane capture races with
+    // Claude's in-flight response and returns garbage (or nothing).
+    if (isClaudeBusy()) {
+      res.status(409).json({ error: 'Slash commands only work when Claude is idle — wait for the current response to finish.' });
       return;
     }
     try {
