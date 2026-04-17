@@ -40,17 +40,45 @@ fi
 cd "$SCRIPT_DIR"
 mkdir -p data
 
+# Kill the process group of a recorded session leader (started with setsid).
+# Reaps tsx/node children that would otherwise survive the wrapper.
+kill_server_pgid() {
+  local pgid="$1" sig="${2:-TERM}"
+  [ -n "$pgid" ] && kill -0 "$pgid" 2>/dev/null || return 0
+  kill "-$sig" -- "-$pgid" 2>/dev/null || true
+}
+
+# Kill anything still bound to our port — safety net for stale PID files and
+# detached children left by a crashed wrapper.
+kill_port_holders() {
+  command -v fuser >/dev/null 2>&1 || return 0
+  local sig="${1:-TERM}"
+  fuser -k "-$sig" -n tcp "$PORT" 2>/dev/null || true
+}
+
 # Clean up any previous instance (handles kill -9 case)
 cleanup_previous() {
-  # Kill old server if PID file exists
+  # Kill old server's process group if PID file exists
+  local had_prev=0
   if [ -f "$PID_FILE" ]; then
     OLD_PID=$(cat "$PID_FILE" 2>/dev/null)
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-      echo "Stopping previous server (PID $OLD_PID)..."
-      kill "$OLD_PID" 2>/dev/null || true
-      sleep 1
+      echo "Stopping previous server (PGID $OLD_PID)..."
+      kill_server_pgid "$OLD_PID" TERM
+      had_prev=1
     fi
     rm -f "$PID_FILE"
+  fi
+  # Only escalate to fuser KILL if WE had a previous instance — children of our
+  # crashed wrapper may still hold the port. Without PID-file evidence the port
+  # holder isn't ours, so refuse to kill it (let the bind below fail loudly).
+  if [ "$had_prev" = 1 ]; then
+    sleep 1
+    if command -v fuser >/dev/null 2>&1 && fuser -n tcp "$PORT" >/dev/null 2>&1; then
+      echo "Force-killing leftover process(es) on port $PORT..."
+      kill_port_holders KILL
+      sleep 1
+    fi
   fi
   # Kill orphaned Claude tmux session
   $TMUX kill-session -t "$TMUX_SESSION" 2>/dev/null || true
@@ -83,10 +111,17 @@ cleanup() {
   trap - EXIT INT TERM  # prevent re-entry
   echo ""
   echo "Shutting down..."
-  # Kill the server process first
-  if [ -n "${SERVER_PID:-}" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID" 2>/dev/null || true
+  # Kill the entire server process group (tsx + node children)
+  local had_server=0
+  if [ -n "${SERVER_PID:-}" ]; then
+    kill_server_pgid "$SERVER_PID" TERM
     wait "$SERVER_PID" 2>/dev/null || true
+    had_server=1
+  fi
+  # Safety net only if our PGID kill left something behind on the port —
+  # don't blanket-kill processes that aren't ours.
+  if [ "$had_server" = 1 ] && command -v fuser >/dev/null 2>&1 && fuser -n tcp "$PORT" >/dev/null 2>&1; then
+    kill_port_holders TERM
   fi
   $TMUX kill-session -t "$TMUX_SESSION" 2>/dev/null || true
   rm -f "$PID_FILE"
@@ -114,7 +149,9 @@ echo ""
 EXTRA_ARGS=""
 [ "${MOCK:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --mock"
 [ "${NO_AUTH:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --no-auth"
-npx tsx server/index.ts --host "$HOST" --port "$PORT" $EXTRA_ARGS "$CWD" &
+# Run in a new session so SERVER_PID == PGID. This lets us reap the full
+# tsx/node tree with `kill -- -$PGID`, regardless of what npx does.
+setsid npx tsx server/index.ts --host "$HOST" --port "$PORT" $EXTRA_ARGS "$CWD" &
 SERVER_PID=$!
 echo "$SERVER_PID" > "$PID_FILE"
 

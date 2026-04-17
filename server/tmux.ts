@@ -23,21 +23,29 @@ let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sendSeq = 0;
 
 export function sendInput(text: string): void {
-  // Always use bracketed paste (-p) so the TUI treats the content as literal
-  // text, not individual key events. Without -p, characters like > or ? in
-  // longer messages can be misinterpreted by Claude Code's Ink-based TUI.
-  // After pasting, send Enter separately to submit.
+  // Claude Code's TUI debounces Enter for ~150-200ms after a bracketed paste
+  // ends (anti-accidental-submit for multi-line pastes). We deliver the paste
+  // synchronously, then schedule the Enter past the debounce as fire-and-forget
+  // so the HTTP caller (and the WebSocket user_message broadcast) don't have
+  // to wait the full ~260ms — only the paste's ~10ms.
+  // Pasting via tmpfile + load-buffer (not send-keys -l) preserves special
+  // characters like > / ? from being interpreted as TUI command triggers.
+  const PASTE_BEGIN = '\x1b[200~';
+  const PASTE_END = '\x1b[201~';
   const tmpFile = path.join(os.tmpdir(), `claude-webui-input-${process.pid}-${sendSeq++}.tmp`);
   const bufName = 'webui-input';
-  try {
-    fs.writeFileSync(tmpFile, text);
-    execSync(`${TMUX} load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
-    execSync(`${TMUX} paste-buffer -d -p -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
-    // TUI needs a moment to process the bracketed paste before Enter can submit
-    execSync(`sleep 0.15 && ${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
-  }
+  fs.writeFileSync(tmpFile, PASTE_BEGIN + text + PASTE_END);
+  execSync(`${TMUX} load-buffer -b ${bufName} ${shellEscape(tmpFile)}`, execOpts);
+  execSync(`${TMUX} paste-buffer -d -b ${bufName} -t ${TMUX_SESSION}:${TMUX_PANE}`, execOpts);
+  setTimeout(() => {
+    try {
+      execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
+    } catch (err) {
+      console.error('[sendInput] deferred Enter failed:', err);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch {}
+    }
+  }, 260);
 }
 
 export function getSessionStatus(): { alive: boolean; session: string } {
