@@ -39,7 +39,18 @@ function getTitle(event: TimelineEvent): string {
     case 'user_message': return 'User Message';
     case 'assistant_message': return 'Assistant Message';
     case 'tool_use':
-    case 'tool_result': return `Tool: ${event.tool_name || 'unknown'}`;
+    case 'tool_result': {
+      const toolName = event.tool_name || 'unknown';
+      // For file-modifying tools, append the path so the header tells the
+      // whole story without needing to scroll the diff.
+      const tn = toolName.toLowerCase();
+      if (tn === 'edit' || tn === 'multiedit' || tn === 'write') {
+        const input = parseToolInput(event.tool_input);
+        const filePath = (input.file_path as string) || '';
+        if (filePath) return `Tool: ${toolName} — ${filePath}`;
+      }
+      return `Tool: ${toolName}`;
+    }
     case 'permission_request': return 'Permission Request';
     case 'subagent_stop': return 'Subagent Result';
     default: return event.event_type;
