@@ -135,20 +135,19 @@ export function parseClaudeOutput(paneContent: string): string | null {
 
   if (promptIdx === -1) return null;
 
-  // Skip the user message's wrapped continuation. Long user messages wrap
-  // onto indented lines that don't carry the `❯` prefix; the response only
-  // begins after the first blank line.
-  let i = promptIdx + 1;
-  while (i < lines.length) {
-    const trimmed = lines[i].trim();
-    if (trimmed === '') { i++; break; }
-    if (trimmed.startsWith('❯')) break;
-    i++;
+  // Anchor on the LAST `●` marker line after the user prompt. Claude Code
+  // renders multiple `●` blocks per turn (one per text block, plus one per
+  // tool call); we want to stream only the current block — anything earlier
+  // (tool cards, completed prose) is already visible in the final event.
+  let responseStart = -1;
+  for (let i = lines.length - 1; i > promptIdx; i--) {
+    if (RESPONSE_MARKER.test(lines[i])) { responseStart = i; break; }
   }
+  if (responseStart === -1) return null;  // no response text yet — just thinking
 
   // Collect response lines until a turn separator or the bottom empty prompt
   const responseLines: string[] = [];
-  for (; i < lines.length; i++) {
+  for (let i = responseStart; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
 

@@ -144,4 +144,37 @@ describe('parseClaudeOutput', () => {
     ]));
     expect(out).toBe('It is the U+276F chevron glyph.');
   });
+
+  it('streams only the current text block, skipping earlier tool-use cards', () => {
+    // Multi-block turn: Claude said something, used a tool, is now writing the
+    // final answer. We should preview only the latest ● block.
+    const out = parseClaudeOutput(pane([
+      '❯ run ls and tell me the largest file',
+      '',
+      '● Let me check the directory.',
+      '  Listed 1 directory (ctrl+o to expand)',
+      '',
+      '● Largest file: api.ts at 42,677 bytes (~42 KB).',
+      '',
+      '────────────────────────────────',
+      '❯ ',
+    ]));
+    expect(out).toBe('Largest file: api.ts at 42,677 bytes (~42 KB).');
+  });
+
+  it('shows the running tool summary when no response text exists yet', () => {
+    // Mid-tool state: the only ● is the tool-use card itself.
+    const out = parseClaudeOutput(pane([
+      '❯ run ls',
+      '',
+      '● Listing 1 directory… (ctrl+o to expand)',
+      '  ⎿  $ ls -la /tmp',
+      '',
+      '✶ Channeling… (5s · ↓ 164 tokens · thinking with high effort)',
+      '',
+      '────────────────────────────────',
+      '❯ ',
+    ]));
+    expect(out).toBe('Listing 1 directory… (ctrl+o to expand)');
+  });
 });

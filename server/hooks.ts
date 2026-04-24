@@ -547,6 +547,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     // Tool call finished — drain queue (matches Claude's native behavior:
     // queued input is sent after any message or tool call completes)
     setClaudeBusy(false);
+    // Resume streaming so the live preview updates while Claude continues
+    // generating text after the tool call. Stopped in pre-tool-use, started
+    // again here; Stop will stop it at end-of-turn.
+    startStreaming(session_id);
     res.json({ ok: true, event_id: eventId });
   });
 
