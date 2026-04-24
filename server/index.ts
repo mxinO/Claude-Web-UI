@@ -124,8 +124,22 @@ registerHookRoutes(app, { broadcastEvent, broadcastPermission });
 registerApiRoutes(app);
 
 const clientDir = path.join(__dirname, '..', 'dist', 'client');
-app.use(express.static(clientDir));
+// Hashed assets are immutable — long-cache them so reloads are fast.
+// index.html must NOT be cached — it points at the current asset hashes,
+// and a stale copy keeps the browser on yesterday's JS bundle forever.
+app.use(express.static(clientDir, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else if (filePath.includes('/assets/')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(clientDir, 'index.html'));
 });
 
