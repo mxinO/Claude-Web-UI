@@ -74,44 +74,58 @@ export function startStreaming(sessionId: string): void {
 }
 
 /**
- * Stop polling. Called when a Stop hook fires.
+ * Stop polling.
+ *
+ * Called from two places:
+ *   - `stop` hook (end of turn) → pass `quiet=false` (default) so the UI
+ *     tears down the streaming preview card.
+ *   - `pre-tool-use` hook → pass `quiet=true` so the UI keeps the preview
+ *     visible. Streaming resumes in `post-tool-use`; broadcasting
+ *     `streaming_done` mid-turn would make the preview flicker between
+ *     tool calls.
  */
-export function stopStreaming(): void {
+export function stopStreaming(opts: { quiet?: boolean } = {}): void {
   if (!polling) return;
   polling = false;
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
-  // Send a final "streaming done" signal
-  if (activeSessionId) {
+  if (activeSessionId && !opts.quiet) {
     broadcast(activeSessionId, 'streaming_done', {});
   }
-  lastText = '';
-  activeSessionId = null;
+  // NOTE: `lastText` is intentionally reset only on end-of-turn. When stopping
+  // for a tool call, we want the upcoming startStreaming() to reuse it so the
+  // first identical capture after resume doesn't re-broadcast the same text.
+  if (!opts.quiet) {
+    lastText = '';
+    activeSessionId = null;
+  }
 }
 
 /**
- * Parse Claude Code's tmux pane output to extract the current response.
+ * Parse Claude Code's tmux pane output to extract the current response text.
  *
  * The pane, during streaming, looks like:
  *   ❯ <user prompt line 1>
  *     <user prompt line 2, wrapped>     (indented, no ❯ prefix)
- *                                       (blank line — end of user msg)
- *   ✽ Unfurling… (3s · thinking …)      (optional thinking spinner)
- *     ⎿  Tip: …                         (optional TUI tip + continuation)
- *        …and PRs
- *   ● <response text>                   (response begins)
- *     <response continuation>
+ *   ● <first response block>            (first ● marker)
+ *       ⎿ tool card / summary           (tool-use card, shares ● glyph above)
+ *   ● <second response block>           (continuation after a tool call)
+ *     <continuation lines, 2-sp indent>
+ *   ✽ Unfurling… (3s · thinking …)      (optional spinner while generating)
  *   ──────────────                      (bottom separator)
  *   ❯                                   (empty input prompt)
  *
  * Strategy:
  * 1. Find the last `❯ <text>` line — start of the current user message.
- * 2. Skip the user message's wrapped continuation until the first blank line.
- * 3. Collect everything after that until a separator or empty prompt.
- * 4. Strip the response/spinner marker, drop thinking spinners and TUI tips
- *    (including multi-line tip continuations), de-indent body text.
+ *    This bounds the search so we never anchor on an older turn's `●`.
+ * 2. Within that range, find the LAST `●` marker line — the currently
+ *    streaming text block (or the most recent tool-use card if no text
+ *    has arrived yet). Return null if no `●` exists (still thinking).
+ * 3. Collect lines from there to a separator or the empty bottom prompt.
+ * 4. Pad the marker with spaces (preserves indent for the dedent pass),
+ *    drop thinking-spinner lines and TUI tip blocks, dedent by min-indent.
  */
 // The `●` marker prefixes Claude's final response text.
 const RESPONSE_MARKER = /^\s*●\s+/;

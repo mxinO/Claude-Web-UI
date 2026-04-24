@@ -429,8 +429,9 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       res.status(400).json({ error: 'session_id is required' });
       return;
     }
-    // Stop streaming when a tool starts
-    stopStreaming();
+    // Pause streaming while the tool runs — post-tool-use resumes it. Pass
+    // `quiet` so the UI keeps the preview card visible instead of flickering.
+    stopStreaming({ quiet: true });
 
     // Snapshot file before Edit/Write overwrites it.
     // For Edit: only snapshot on the FIRST edit to a file this turn.
