@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.3 — 2026-04-22
+
+### New Features
+- **Auto-restart on Claude death** — if the Claude Code process dies inside the managed tmux session, the server resumes it in the same cwd (`--resume <id>` if a JSONL transcript exists, else fresh). Rate-limited to one attempt per 30s with a 5s post-restart health check
+- **Math rendering** — KaTeX inline (`$E=mc^2$`) and block (`$$…$$`) math via remark-math + rehype-katex
+- **`/model` picker** — updated to the five options Claude Code actually exposes: `default`, `sonnet[1m]`, `opus[1m]`, `haiku`, `opus`
+- **New Session button** — start a fresh Claude session from the session picker without resuming
+- **Dedicated tmux socket** — Claude session runs on `tmux -L claude-webui` (configurable via `CLAUDE_TMUX_SOCKET`) so it stays invisible to outside `tmux ls`/`attach`
+
+### UX Improvements
+- **File path in diff modal title** — `Tool: Edit — /path/to/file.ts` instead of just `Tool: Edit`. Long titles truncate with ellipsis
+- **Slash-command busy guard** — `/model`, `/effort` etc. now show a clear warning ("only work when Claude is idle") instead of silently being dropped if sent mid-response. `/btw` is unaffected (intentional side channel)
+- **Non-blocking Enter** — `send-input` returns and broadcasts the user message after the ~10ms paste step; the post-paste Enter now fires asynchronously, so the UI bubble appears immediately
+
+### Fixes
+- **Stop "no server running on …" log spam** — every `tmux` exec now pipes stderr; dead-session detection stops the streaming poll instead of looping forever
+- **start.sh process-group cleanup** — launch with `setsid` and kill the whole PGID on exit so `npx tsx` children never zombie. Fuser fallback only escalates when the prior server's PID file shows we owned the port
+- **Auth cookie scoped per hostname** — two web UI servers on different hosts (accessed via the same SSH tunnel) no longer overwrite each other's cookies
+- **Auto-recover after network blips** — UI reconnects WebSocket and catches up missed events without a manual refresh
+
+### Docs
+- README env-var table includes `CLAUDE_TMUX_SOCKET`
+
+---
+
 ## v1.2 — 2026-04-16
 
 ### New Features
