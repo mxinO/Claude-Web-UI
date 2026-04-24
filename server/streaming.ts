@@ -94,16 +94,33 @@ export function stopStreaming(): void {
 /**
  * Parse Claude Code's tmux pane output to extract the current response.
  *
- * The pane looks like:
- *   ❯ <user prompt>
- *   ● <response text>        (or ✢ Flowing…)
- *   ──────────────           (separator)
- *   ❯                        (next prompt)
+ * The pane, during streaming, looks like:
+ *   ❯ <user prompt line 1>
+ *     <user prompt line 2, wrapped>     (indented, no ❯ prefix)
+ *                                       (blank line — end of user msg)
+ *   ✽ Unfurling… (3s · thinking …)      (optional thinking spinner)
+ *     ⎿  Tip: …                         (optional TUI tip + continuation)
+ *        …and PRs
+ *   ● <response text>                   (response begins)
+ *     <response continuation>
+ *   ──────────────                      (bottom separator)
+ *   ❯                                   (empty input prompt)
  *
- * We find the last `❯ ` line (user prompt), then collect everything
- * after it until the separator `───` line.
+ * Strategy:
+ * 1. Find the last `❯ <text>` line — start of the current user message.
+ * 2. Skip the user message's wrapped continuation until the first blank line.
+ * 3. Collect everything after that until a separator or empty prompt.
+ * 4. Strip the response/spinner marker, drop thinking spinners and TUI tips
+ *    (including multi-line tip continuations), de-indent body text.
  */
-function parseClaudeOutput(paneContent: string): string | null {
+// The `●` marker prefixes Claude's final response text.
+const RESPONSE_MARKER = /^\s*●\s+/;
+// These cycle chars prefix in-progress thinking spinner lines ("Unfurling…").
+// Deliberately narrow to known spinner glyphs — `*` is excluded because it's a
+// legitimate markdown bullet and `·` because it appears in prose qualifiers.
+const SPINNER_MARKER = /^\s*[✢✽✶⚡]\s+/;
+
+export function parseClaudeOutput(paneContent: string): string | null {
   const lines = paneContent.split('\n');
 
   // Find the last user prompt line (❯ with text after it)
@@ -118,9 +135,20 @@ function parseClaudeOutput(paneContent: string): string | null {
 
   if (promptIdx === -1) return null;
 
-  // Collect response lines after the prompt, until separator or empty prompt
+  // Skip the user message's wrapped continuation. Long user messages wrap
+  // onto indented lines that don't carry the `❯` prefix; the response only
+  // begins after the first blank line.
+  let i = promptIdx + 1;
+  while (i < lines.length) {
+    const trimmed = lines[i].trim();
+    if (trimmed === '') { i++; break; }
+    if (trimmed.startsWith('❯')) break;
+    i++;
+  }
+
+  // Collect response lines until a turn separator or the bottom empty prompt
   const responseLines: string[] = [];
-  for (let i = promptIdx + 1; i < lines.length; i++) {
+  for (; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
 
@@ -134,36 +162,61 @@ function parseClaudeOutput(paneContent: string): string | null {
 
   if (responseLines.length === 0) return null;
 
-  // Claude Code's TUI indents response text with 2 spaces.
-  // Strip common leading whitespace to get clean text for markdown rendering.
-  let cleaned = responseLines
-    // Remove the response marker line (● or ✢ prefix)
-    .map(line => {
-      // First line often starts with ● or ✢
-      const markerMatch = line.match(/^\s*[●✢✶⚡]\s*/);
-      if (markerMatch) return line.slice(markerMatch[0].length);
-      return line;
-    })
-    // Remove status lines
-    .filter(line => !line.trim().match(/^(Flowing|Blanching|Thinking|Cooking|Simmering|Brewing)…$/i))
-    // Remove tip lines
-    .filter(line => !line.trim().startsWith('⎿'));
+  // Two-pass processing so we can drop spinner lines and tip continuations
+  // without misclassifying legitimate response text that happens to share
+  // their indent or suffix patterns.
+  //
+  // Pass 1 — classify and strip:
+  //   - Spinner line (`✢ Unfurling…`) → drop.
+  //   - Response marker (`● …`) → replace marker with equivalent-width padding
+  //     so the dedent pass below sees the true body indent.
+  //   - Everything else passes through untouched.
+  type Classified = { text: string; isResponseStart: boolean };
+  const classified: Classified[] = [];
+  for (const line of responseLines) {
+    if (SPINNER_MARKER.test(line)) continue;               // drop thinking spinners
+    const rm = line.match(RESPONSE_MARKER);
+    if (rm) {
+      classified.push({ text: ' '.repeat(rm[0].length) + line.slice(rm[0].length), isResponseStart: true });
+    } else {
+      classified.push({ text: line, isResponseStart: false });
+    }
+  }
+
+  // Pass 2 — drop TUI tips (`⎿  Tip: …`) and their wrapped continuations.
+  // A response-marker line (●) unambiguously ends any tip context, which
+  // prevents us from eating an indented code block that follows the tip.
+  const cleaned: string[] = [];
+  let inTip = false;
+  for (const { text: line, isResponseStart } of classified) {
+    const trimmed = line.trim();
+    if (isResponseStart) { inTip = false; cleaned.push(line); continue; }
+    if (trimmed.startsWith('⎿')) { inTip = true; continue; }
+    if (inTip) {
+      // Continuation: blank or indented 3+ spaces. Body response text lives
+      // at the 2-space indent, so 3+ reliably identifies tip wrap-around.
+      if (trimmed === '' || /^\s{3,}\S/.test(line)) continue;
+      inTip = false;
+    }
+    cleaned.push(line);
+  }
 
   // Detect common indent (Claude Code uses 2-space indent for body text)
   const nonEmptyLines = cleaned.filter(l => l.trim().length > 0);
+  let finalLines = cleaned;
   if (nonEmptyLines.length > 0) {
     const minIndent = Math.min(...nonEmptyLines.map(l => {
       const match = l.match(/^( +)/);
       return match ? match[1].length : 0;
     }));
     if (minIndent > 0) {
-      cleaned = cleaned.map(l => {
+      finalLines = cleaned.map(l => {
         if (l.trim().length === 0) return '';
         return l.slice(Math.min(minIndent, l.length - l.trimStart().length));
       });
     }
   }
 
-  const text = cleaned.join('\n').trim();
+  const text = finalLines.join('\n').trim();
   return text || null;
 }
