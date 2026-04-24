@@ -8,10 +8,12 @@ import { initDb, createSession, switchDb } from './db.js';
 import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.js';
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
-import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
+import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
 import { addAllowedRoot } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
+import { setOnClaudeDead } from './streaming.js';
+import { autoRestartClaude } from './restart.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Parse CLI args: --host, --port, --mock, and positional CWD
@@ -132,6 +134,9 @@ initWebSocket(server);
 
 server.listen(PORT, HOST, () => {
   console.log(`Claude Web UI server listening on http://${HOST}:${PORT}`);
+
+  // Auto-resume Claude if tmux session dies mid-operation.
+  setOnClaudeDead((sid) => { void autoRestartClaude(sid); });
 
   if (MOCK) {
     console.log('Running in --mock mode (no tmux/Claude)');
@@ -285,7 +290,7 @@ function bootstrapExistingSession() {
   try {
     const capture = execSync(
       `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
-      { encoding: 'utf-8', timeout: 3000 }
+      tmuxExecOpts(3000),
     );
     const modelMatch = capture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+/i);
     const cwdMatch = capture.match(/│\s+(\/\S+)\s+│/);

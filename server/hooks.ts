@@ -16,7 +16,7 @@ import type { DbEvent } from './types.js';
 import { startStreaming, stopStreaming } from './streaming.js';
 import { addAllowedRoot } from './api.js';
 import { setClaudeBusy, setSessionIdGetter } from './queue.js';
-import { TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
+import { TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
@@ -161,7 +161,7 @@ function getCurrentPermissionMode(): string | null {
   try {
     const capture = execSync(
       `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
-      { encoding: 'utf-8', timeout: 3000 }
+      tmuxExecOpts(3000),
     );
     if (capture.includes('plan mode')) return 'plan';
     if (capture.includes('bypass permissions')) return 'bypassPermissions';

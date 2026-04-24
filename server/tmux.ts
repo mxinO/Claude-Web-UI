@@ -17,7 +17,21 @@ export const TMUX_PANE = validateTmuxName(process.env.CLAUDE_TMUX_PANE || '0', '
 // and `tmux attach` from outside the web UI server.
 export const TMUX_SOCKET = validateTmuxName(process.env.CLAUDE_TMUX_SOCKET || 'claude-webui', 'CLAUDE_TMUX_SOCKET');
 export const TMUX = `tmux -L ${TMUX_SOCKET}`;
-const execOpts: ExecSyncOptionsWithStringEncoding = { encoding: 'utf-8', timeout: 5000 };
+// Pipe stderr so tmux errors (e.g. "no server running on ...") don't leak
+// to our server stdout when the session dies. execSync throws on non-zero
+// exit regardless, so callers still learn about failures via catch blocks.
+const execOpts: ExecSyncOptionsWithStringEncoding = {
+  encoding: 'utf-8',
+  timeout: 5000,
+  stdio: ['pipe', 'pipe', 'pipe'],
+};
+
+/** Build execSync options for a tmux command with the stderr pipe baked in.
+ *  Use this at every call site that runs `tmux …` so dead-session stderr
+ *  ("no server running on …") doesn't leak to our stdout. */
+export function tmuxExecOpts(timeout = 3000): ExecSyncOptionsWithStringEncoding {
+  return { encoding: 'utf-8', timeout, stdio: ['pipe', 'pipe', 'pipe'] };
+}
 
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sendSeq = 0;

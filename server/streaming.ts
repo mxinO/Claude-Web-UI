@@ -8,13 +8,24 @@
 
 import { execSync } from 'child_process';
 import { broadcast } from './websocket.js';
-import { TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
+import { TMUX, TMUX_SESSION, TMUX_PANE, getSessionStatus } from './tmux.js';
 const POLL_INTERVAL = 400; // ms
+// `stdio: pipe` keeps tmux's stderr (e.g. "no server running on …") out of
+// the parent process stdout when the session dies mid-poll.
+const CAPTURE_OPTS = { encoding: 'utf-8' as const, timeout: 2000, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] };
 
 let polling = false;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let lastText = '';
 let activeSessionId: string | null = null;
+let captureFailCount = 0;
+
+// Set externally to avoid circular imports (streaming ← hooks ← restart ← …).
+// The callback receives the session that was active when death was detected.
+let onClaudeDead: ((sessionId: string | null) => void) | null = null;
+export function setOnClaudeDead(cb: (sessionId: string | null) => void): void {
+  onClaudeDead = cb;
+}
 
 /**
  * Start polling tmux capture-pane for streaming output.
@@ -29,20 +40,35 @@ export function startStreaming(sessionId: string): void {
   polling = true;
   activeSessionId = sessionId;
   lastText = '';
+  captureFailCount = 0;
 
   pollTimer = setInterval(() => {
     try {
       const paneContent = execSync(
         `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -50`,
-        { encoding: 'utf-8', timeout: 2000 }
+        CAPTURE_OPTS,
       );
+      captureFailCount = 0;
       const parsed = parseClaudeOutput(paneContent);
       if (parsed && parsed !== lastText) {
         lastText = parsed;
         broadcast(activeSessionId!, 'streaming', { text: parsed });
       }
     } catch {
-      // capture failed — ignore
+      // Transient capture failure is fine. But if tmux keeps failing, the
+      // session is probably dead — stop polling so we don't spam the logs
+      // and let the UI know Claude is gone.
+      captureFailCount++;
+      if (captureFailCount >= 3 && !getSessionStatus().alive) {
+        const sid = activeSessionId;
+        console.error('[streaming] tmux session is dead — stopping poll');
+        stopStreaming();
+        if (onClaudeDead) {
+          onClaudeDead(sid);
+        } else if (sid) {
+          broadcast(sid, 'claude_dead', {});
+        }
+      }
     }
   }, POLL_INTERVAL);
 }

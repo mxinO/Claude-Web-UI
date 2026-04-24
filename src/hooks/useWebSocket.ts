@@ -70,6 +70,12 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
         } else if (data.type === 'queue_remove' && data.id) {
           queueRef.current = queueRef.current.filter(m => m.id !== data.id);
           onQueueChangeRef.current?.(queueRef.current);
+        } else if (data.type === 'claude_dead') {
+          // Auto-restart was skipped (cooldown or no session id). Surface it.
+          window.dispatchEvent(new CustomEvent('claude-dead', { detail: data }));
+        } else if (data.type === 'claude_restarting') {
+          // Server is resuming Claude in the same session's cwd after a death.
+          window.dispatchEvent(new CustomEvent('claude-restarting', { detail: data }));
         }
       } catch {
         // ignore

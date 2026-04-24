@@ -281,11 +281,26 @@ export default function App() {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
       });
     };
+    const deadHandler = () => {
+      alert('Claude Code tmux session died and auto-restart is on cooldown (or no session to resume). Restart the server to recover.');
+    };
+    const restartingHandler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { cwd?: string } | undefined;
+      const cwd = detail?.cwd || 'last working directory';
+      // Non-blocking toast-style notice reusing the btw-response popup
+      window.dispatchEvent(new CustomEvent('btw-response', {
+        detail: { question: 'Claude restart', response: `Claude died — resuming in ${cwd}…` }
+      }));
+    };
     window.addEventListener('claude-message-sent', handler);
     window.addEventListener('bash-output', scrollToBottom);
+    window.addEventListener('claude-dead', deadHandler);
+    window.addEventListener('claude-restarting', restartingHandler);
     return () => {
       window.removeEventListener('claude-message-sent', handler);
       window.removeEventListener('bash-output', scrollToBottom);
+      window.removeEventListener('claude-dead', deadHandler);
+      window.removeEventListener('claude-restarting', restartingHandler);
     };
   }, []);
 

@@ -16,7 +16,8 @@ import {
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
 import { exec, execSync, ChildProcess } from 'child_process';
-import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE } from './tmux.js';
+import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
+import { autoRestartClaude } from './restart.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
@@ -257,17 +258,27 @@ export function registerApiRoutes(app: Express): void {
   });
 
   // POST /api/send-input — send text to Claude via tmux (or queue if busy)
-  router.post('/send-input', (req, res) => {
+  router.post('/send-input', async (req, res) => {
     const { text } = req.body as { text?: string };
     if (typeof text !== 'string') {
       res.status(400).json({ error: 'text (string) is required' });
       return;
     }
     try {
-      // Verify Claude is actually running in tmux before sending
+      // Verify Claude is actually running in tmux before sending.
+      // If it died while idle, kick off auto-restart so the user doesn't
+      // have to bounce the server manually.
       const status = getSessionStatus();
       if (!status.alive) {
-        res.status(503).json({ error: 'No tmux session — Claude is not running' });
+        const outcome = await autoRestartClaude(getManagedSessionId());
+        const msg = {
+          'started': 'Claude session died — restarting now. Try again in a few seconds.',
+          'in-progress': 'Claude restart already in progress. Try again in a few seconds.',
+          'cooldown': 'Claude died and recently failed to restart — please restart the server.',
+          'no-session': 'Claude is not running and there is no session to resume — restart the server.',
+          'failed': 'Claude restart failed. Check the server log and restart the server.',
+        }[outcome];
+        res.status(503).json({ error: msg, outcome });
         return;
       }
 
@@ -331,7 +342,7 @@ export function registerApiRoutes(app: Express): void {
       // Stop streaming poll first
       stopStreaming();
       // Send Escape to tmux to interrupt
-      execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+      execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, tmuxExecOpts(3000));
       // Timing-sensitive: 500ms gives Claude time to restore the prompt before we capture pane output.
       // Too short → we capture mid-restore; too long → unnecessary latency on cancel.
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -343,7 +354,7 @@ export function registerApiRoutes(app: Express): void {
       try {
         const visible = execSync(
           `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
-          { encoding: 'utf-8', timeout: 3000 }
+          tmuxExecOpts(3000)
         );
         // Get last few non-empty lines (the prompt area)
         const lines = visible.split('\n').filter(l => l.trim());
@@ -357,7 +368,7 @@ export function registerApiRoutes(app: Express): void {
 
       // Clear Claude's input and remove orphaned event from DB
       if (restoredText) {
-        execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, { encoding: 'utf-8', timeout: 3000 });
+        execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} C-u`, tmuxExecOpts(3000));
         // Delete the orphaned user_message from the DB
         const managedId = getManagedSessionId();
         if (managedId) {
@@ -401,7 +412,7 @@ export function registerApiRoutes(app: Express): void {
       // Capture pane AFTER to find the response
       const after = execSync(
         `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -10`,
-        { encoding: 'utf-8', timeout: 3000 }
+        tmuxExecOpts(3000)
       );
 
       // Extract the response: find lines after the command that weren't in "before"
@@ -434,7 +445,7 @@ export function registerApiRoutes(app: Express): void {
         try {
           const capture = execSync(
             `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -40`,
-            { encoding: 'utf-8', timeout: 3000 }
+            tmuxExecOpts(3000)
           );
           if (capture.includes('Esc to dismiss')) {
             if (capture === lastCapture) {
@@ -455,7 +466,7 @@ export function registerApiRoutes(app: Express): void {
       // Dismiss the popup only if it was actually shown
       if (lastCapture.includes('Esc to dismiss')) {
         try {
-          execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, { encoding: 'utf-8', timeout: 3000 });
+          execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, tmuxExecOpts(3000));
         } catch { /* ignore */ }
       }
 
@@ -656,7 +667,7 @@ export function registerApiRoutes(app: Express): void {
         try {
           const headerCapture = execSync(
             `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
-            { encoding: 'utf-8', timeout: 3000 }
+            tmuxExecOpts(3000)
           );
           if (!model) {
             const m = headerCapture.match(/(Opus|Sonnet|Haiku)\s+[\d.]+(\s*\([^)]+\))?/i);
@@ -673,7 +684,7 @@ export function registerApiRoutes(app: Express): void {
           if (!permissionMode) {
             const statusCapture = execSync(
               `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
-              { encoding: 'utf-8', timeout: 3000 }
+              tmuxExecOpts(3000)
             );
             if (statusCapture.includes('plan mode')) permissionMode = 'plan';
             else if (statusCapture.includes('bypass permissions')) permissionMode = 'bypass';
