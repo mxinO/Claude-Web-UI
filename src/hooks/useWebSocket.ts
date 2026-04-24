@@ -50,6 +50,13 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
           session_id: session.id,
           last_event_id: lastEventId.current,
         }));
+      } else {
+        // Session wasn't ready on initial mount (e.g. page loaded before the
+        // first SessionStart hook fired). Retry now that the server is reachable.
+        fetch('/api/sessions/latest')
+          .then(r => r.ok ? r.json() : null)
+          .then(s => { if (s) setSession(s); })
+          .catch(() => {});
       }
     };
 
