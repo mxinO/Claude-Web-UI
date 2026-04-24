@@ -50,13 +50,6 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
           session_id: session.id,
           last_event_id: lastEventId.current,
         }));
-      } else {
-        // Session wasn't ready on initial mount (e.g. page loaded before the
-        // first SessionStart hook fired). Retry now that the server is reachable.
-        fetch('/api/sessions/latest')
-          .then(r => r.ok ? r.json() : null)
-          .then(s => { if (s) setSession(s); })
-          .catch(() => {});
       }
     };
 
@@ -115,12 +108,38 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
     ws.onerror = () => ws.close();
   }, [session?.id]);
 
-  // Fetch latest session on mount, then connect
+  // Fetch latest session on mount, then connect. If the server hasn't yet
+  // received the SessionStart hook (common on a cold start — the page can
+  // load before Claude boots), poll every second until it does, for up to
+  // 60s. The poll self-terminates as soon as *any* code path has populated
+  // the session prop (session-switch, WS event, etc.), not just our fetch.
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+  const sessionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    fetch('/api/sessions/latest')
-      .then(r => r.ok ? r.json() : null)
-      .then(s => { if (s) setSession(s); })
-      .catch(() => {});
+    let attempts = 0;
+    const stopPoll = () => {
+      if (sessionPollRef.current) { clearInterval(sessionPollRef.current); sessionPollRef.current = null; }
+    };
+    const tryFetch = () => {
+      if (sessionRef.current?.id) { stopPoll(); return; }
+      fetch('/api/sessions/latest')
+        .then(r => r.ok ? r.json() : null)
+        .then(s => {
+          // Re-check the ref: another code path may have set the session
+          // while this fetch was in flight, in which case don't clobber it.
+          if (s && s.id && !sessionRef.current?.id) {
+            setSession(s);
+            stopPoll();
+          }
+        })
+        .catch(() => {});
+    };
+    tryFetch();
+    sessionPollRef.current = setInterval(() => {
+      if (++attempts > 60) { stopPoll(); return; }
+      tryFetch();
+    }, 1000);
 
     // Load initial queue
     fetch('/api/queue')
@@ -140,6 +159,7 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
     return () => {
       clearTimeout(reconnectTimer.current);
       window.removeEventListener('auth-restored', onAuthRestored);
+      if (sessionPollRef.current) { clearInterval(sessionPollRef.current); sessionPollRef.current = null; }
       if (probeWsRef.current) {
         probeWsRef.current.onclose = null;
         probeWsRef.current.close();
