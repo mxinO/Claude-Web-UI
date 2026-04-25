@@ -32,7 +32,14 @@ function parseArgs(argv: string[]) {
   }
   return { host, port, mock, noAuth, cwd };
 }
-const { host: HOST, port: PORT, mock: MOCK, noAuth: NO_AUTH, cwd: CLAUDE_CWD } = parseArgs(process.argv);
+const { host: HOST, port: PORT, mock: MOCK, noAuth: NO_AUTH, cwd: rawCwd } = parseArgs(process.argv);
+// Resolve CLAUDE_CWD to absolute now, in case the caller passed a relative
+// path. tmux interprets relative paths from its own cwd, not ours.
+const CLAUDE_CWD = path.resolve(rawCwd);
+if (!fs.existsSync(CLAUDE_CWD)) {
+  console.error(`Working directory does not exist: ${CLAUDE_CWD} (from arg "${rawCwd}")`);
+  process.exit(1);
+}
 
 // --- Auth ---
 initAuth(!NO_AUTH);

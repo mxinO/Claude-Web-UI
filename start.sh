@@ -28,6 +28,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 CWD="${CWD:-$(pwd)}"
+# Resolve CWD to an absolute path while we're still in the user's shell —
+# otherwise the `cd "$SCRIPT_DIR"` below changes what a relative path means,
+# and tmux ends up trying to start claude in a directory that doesn't exist.
+if [ ! -d "$CWD" ]; then
+  echo "Error: working directory does not exist: $CWD"; exit 1
+fi
+CWD="$(cd "$CWD" && pwd)"
 
 # If run via curl pipe, clone first
 if [ ! -f "$SCRIPT_DIR/package.json" ]; then
