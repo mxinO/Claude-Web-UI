@@ -13,6 +13,7 @@ interface ClaudeStatus {
   cwd: string | null;
   effort: string | null;
   permissionMode: string | null;
+  hostname?: string | null;
 }
 
 export default function Header({ session, connected }: HeaderProps) {
@@ -112,6 +113,11 @@ export default function Header({ session, connected }: HeaderProps) {
   return (
     <div className="header" style={{ position: 'relative' }}>
       <span style={{ fontWeight: 'bold' }}>Claude Code Web UI</span>
+      {status.hostname && (
+        <span className="session-info" title={`Server hostname: ${status.hostname}`}>
+          @{status.hostname}
+        </span>
+      )}
       {session && (
         <>
           <span

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import express, { Router, Express } from 'express';
 import {
@@ -693,7 +694,7 @@ export function registerApiRoutes(app: Express): void {
         } catch { /* tmux not available */ }
       }
 
-      res.json({ model, cwd, effort, permissionMode });
+      res.json({ model, cwd, effort, permissionMode, hostname: os.hostname() });
     } catch {
       res.json({ model: null, cwd: null, effort: null, permissionMode: null });
     }
