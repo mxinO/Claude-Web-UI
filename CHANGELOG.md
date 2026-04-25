@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.4 — 2026-04-25
+
+### New Features
+- **Working directory picker on New Session** — clicking New Session opens a modal with a text input pre-filled with the current cwd plus a live subdirectory list. Type, click into a folder, or `..` to step up; Enter / "Use this directory" confirms. Sensitive paths (`.ssh`, `.gnupg`, `.aws`, `.env`, `.config/gcloud`) are blocked at any depth — not just hidden in listings
+- **Server hostname in the header** — `@hostname` next to the title removes the "which server am I talking to?" ambiguity when several web UIs are open across machines
+
+### Streaming card fixes
+- **Visible during the early-thinking phase** — the preview card now shows the spinner status (e.g. `Forming… (3s · 85 tokens · thinking with high effort)`) instead of staying empty until a `●` lands. Previously on tool-using turns the card only appeared once the first tool card rendered
+- **Survives tool calls** — `post-tool-use` now resumes streaming, and the parser anchors on the latest `●` block so the preview reflects current activity rather than concatenating earlier text with tool cards
+- **Quiet pause between tool calls** — `pre-tool-use` no longer broadcasts `streaming_done`, so the UI doesn't flicker between back-to-back tool calls
+- **Multi-line user messages** — wrapped continuations are no longer mistaken for response text; `✽`/`·` spinner glyphs and TUI tip wrap-around are filtered correctly. 15 vitest cases cover these scenarios
+
+### Robustness
+- **Working directory resolved to absolute** — `start.sh` and the server now `cd`/`path.resolve` the cwd argument *before* changing directories, so a relative argument like `../../qwq-32b/` is interpreted from your shell, not the repo
+- **`/api/sessions/latest` polling** — frontend polls every second for up to 60s, so the session id appears even when the page loads before Claude's first `SessionStart` hook
+- **Cold-start diagnostics** — `start.sh` and the server log a clear error when Claude's tmux session disappears within 3s of launch (CLI not on PATH, bad cwd, missing auth) instead of staring at a blank UI
+- **No more "no server running on …" log spam** — `tmux` exec stderr is piped, dead-session detection stops the streaming poll, and a session-died event triggers auto-restart in the same cwd (with `--resume` if the JSONL transcript exists). Rate-limited and surfaced to the UI as a toast
+- **`/api/sessions/latest` returns 200 with `null`** instead of 404 when no session exists — cleaner browser console during the poll
+- **Cache-Control headers** — `index.html` is `no-cache, no-store`; hashed assets are `immutable`. Frontend rebuilds always reach the browser; reloads of unchanged assets stay fast
+
+### Misc
+- **Open external links in new tab** — chat-rendered links now use `target="_blank" rel="noopener noreferrer"`
+
+---
+
 ## v1.3 — 2026-04-22
 
 ### New Features
