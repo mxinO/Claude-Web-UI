@@ -763,6 +763,25 @@ export function registerApiRoutes(app: Express): void {
   // POST /api/new-session — kill current Claude, start a fresh session (no --resume)
   router.post('/new-session', async (req, res) => {
     const { cwd } = req.body as { cwd?: string };
+    // Validate cwd up front so a typo doesn't kill the current Claude session
+    // and leave the user with nothing. Treat empty/whitespace as missing
+    // rather than silently resolving to the server's cwd (surprising).
+    const trimmed = (cwd ?? '').trim();
+    if (!trimmed) {
+      res.status(400).json({ error: 'cwd is required' });
+      return;
+    }
+    const targetCwd = path.resolve(trimmed);
+    try {
+      const st = fs.statSync(targetCwd);
+      if (!st.isDirectory()) {
+        res.status(400).json({ error: `Not a directory: ${targetCwd}` });
+        return;
+      }
+    } catch {
+      res.status(400).json({ error: `Working directory does not exist: ${targetCwd}` });
+      return;
+    }
     try {
       stopStreaming();
       resetQueue();
@@ -772,8 +791,6 @@ export function registerApiRoutes(app: Express): void {
 
       setManagedSessionId(null);
       setWaitingForSessionStart(true);
-
-      const targetCwd = cwd || process.cwd();
       const __dirname = path.dirname(new URL(import.meta.url).pathname);
       const hooksSettings = path.join(__dirname, '..', 'data', 'hooks-settings.json');
       console.log(`[new-session] starting fresh in ${targetCwd}`);
@@ -834,6 +851,42 @@ export function registerApiRoutes(app: Express): void {
           return a.name.localeCompare(b.name);
         });
       res.json({ path: raw, items });
+    } catch (err) {
+      res.status(404).json({ error: `Cannot read directory: ${err}` });
+    }
+  });
+
+  // GET /api/browse-dirs?path=/abs/path — list subdirectories of any
+  // absolute path the server user can read. Used by the New Session UI
+  // to let the user pick a working directory anywhere on the host.
+  router.get('/browse-dirs', (req, res) => {
+    const raw = req.query.path as string | undefined;
+    if (!raw || !path.isAbsolute(raw)) {
+      res.status(400).json({ error: 'path must be an absolute path' });
+      return;
+    }
+    // Refuse to traverse into known-sensitive directories at any segment
+    // depth, not just hide their names — typing the path directly would
+    // otherwise bypass the listing filter.
+    const BLOCKED = ['.ssh', '.gnupg', '.aws', '.env', '.config/gcloud'];
+    const segments = raw.split('/').filter(Boolean);
+    if (BLOCKED.some(b => {
+      const bSegs = b.split('/');
+      for (let i = 0; i + bSegs.length <= segments.length; i++) {
+        if (bSegs.every((s, k) => segments[i + k] === s)) return true;
+      }
+      return false;
+    })) {
+      res.status(403).json({ error: 'Access denied' });
+      return;
+    }
+    try {
+      const entries = fs.readdirSync(raw, { withFileTypes: true });
+      const dirs = entries
+        .filter(e => e.isDirectory() && !BLOCKED.some(b => b.split('/')[0] === e.name))
+        .map(e => ({ name: e.name, path: path.join(raw, e.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      res.json({ path: raw, parent: path.dirname(raw), dirs });
     } catch (err) {
       res.status(404).json({ error: `Cannot read directory: ${err}` });
     }

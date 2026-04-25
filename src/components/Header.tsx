@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Session } from '../types';
 import SessionPicker from './SessionPicker';
+import CwdPicker from './CwdPicker';
 
 interface HeaderProps {
   session: Session | null;
@@ -66,20 +67,32 @@ export default function Header({ session, connected }: HeaderProps) {
     setSwitching(false);
   }
 
-  async function handleNewSession() {
-    if (switching) return;
+  const [cwdPickerVisible, setCwdPickerVisible] = useState(false);
+
+  function handleNewSession() {
     setPickerVisible(false);
+    setCwdPickerVisible(true);
+  }
+
+  async function startNewSessionWithCwd(cwd: string) {
+    if (switching) return;
+    setCwdPickerVisible(false);
     setSwitching(true);
     try {
       const res = await fetch('/api/new-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd: displayCwd }),
+        body: JSON.stringify({ cwd }),
       });
       if (res.ok) {
         window.location.reload();
+        return;
       }
-    } catch { /* ignore */ }
+      const data = await res.json().catch(() => ({}));
+      alert(data.error || `Failed to start new session: HTTP ${res.status}`);
+    } catch (err) {
+      alert(`Failed to start new session: ${err}`);
+    }
     setSwitching(false);
   }
 
@@ -145,6 +158,13 @@ export default function Header({ session, connected }: HeaderProps) {
         <div className={`status-dot ${connected ? 'connected' : 'disconnected'}`} />
         <span>{connected ? 'Connected' : 'Disconnected'}</span>
       </div>
+      {cwdPickerVisible && (
+        <CwdPicker
+          initialCwd={displayCwd || '/'}
+          onConfirm={startNewSessionWithCwd}
+          onCancel={() => setCwdPickerVisible(false)}
+        />
+      )}
     </div>
   );
 }
