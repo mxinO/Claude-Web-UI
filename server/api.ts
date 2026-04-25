@@ -162,20 +162,18 @@ export function registerApiRoutes(app: Express): void {
     res.json(sessions);
   });
 
-  // GET /api/sessions/latest — get the active managed session (or most recent)
+  // GET /api/sessions/latest — get the active managed session (or most recent).
+  // Returns 200 with `null` body when no session exists yet (e.g. SessionStart
+  // hook hasn't fired). The frontend polls this endpoint on cold start and
+  // 404 spam in the browser console was confusing.
   router.get('/sessions/latest', (_req, res) => {
-    // Prefer the managed session (the one we're actively tracking)
     const managedId = getManagedSessionId();
     if (managedId) {
       const managed = getSession(managedId);
       if (managed) { res.json(managed); return; }
     }
     const session = getLatestSession();
-    if (!session) {
-      res.status(404).json({ error: 'No sessions found' });
-      return;
-    }
-    res.json(session);
+    res.json(session ?? null);
   });
 
   // GET /api/events?session_id=X&before=Y&after_id=Z&limit=N — paginated events

@@ -183,10 +183,29 @@ server.listen(PORT, HOST, () => {
     try {
       startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD);
       console.log(`Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
+      // tmux new-session -d returns success once the session is created, even
+      // if `claude` itself exits immediately (e.g. CLI not found, bad cwd, auth
+      // missing). Probe a few seconds later — if the session is gone, claude
+      // crashed and the user needs to know why instead of staring at a hung UI.
+      setTimeout(() => {
+        if (!getSessionStatus().alive) {
+          console.error(
+            '\n[startup] Claude tmux session disappeared within 3s — claude likely failed to start.\n' +
+            '         Common causes:\n' +
+            `           - \`claude\` CLI not on PATH (try: which claude)\n` +
+            `           - working directory does not exist: ${CLAUDE_CWD}\n` +
+            `           - claude not authenticated (try: claude --version)\n` +
+            `         To debug, run interactively in the same shell: cd ${CLAUDE_CWD} && claude\n`
+          );
+        }
+      }, 3000);
       // Safety: if SessionStart hook doesn't fire within 30s, unblock hooks
       setTimeout(() => {
         if (isWaitingForSessionStart()) {
-          console.warn('SessionStart hook did not fire within 30s — unblocking hooks');
+          console.warn(
+            'SessionStart hook did not fire within 30s — unblocking hooks. ' +
+            'If `tmux -L claude-webui ls` shows no session, claude crashed; otherwise hooks may be blocked from reaching this server.'
+          );
           setWaitingForSessionStart(false);
         }
       }, 30_000);
