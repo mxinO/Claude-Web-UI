@@ -36,7 +36,9 @@ describe('parseClaudeOutput', () => {
     expect(out).toBe('A programmer named Grace wrote some code,\nThat refused to compile or unload.');
   });
 
-  it('filters thinking spinner + tip lines during streaming start', () => {
+  it('shows the thinking-spinner status as preview when no response text exists yet', () => {
+    // Pure-thinking phase: no `●` line in the pane, but the user wants
+    // some progress feedback — surface the spinner status as the preview.
     const out = parseClaudeOutput(pane([
       '❯ write a very long limerick about software engineering, take your time and use',
       '   rich vocabulary',
@@ -49,8 +51,7 @@ describe('parseClaudeOutput', () => {
       '❯ ',
       '────────────────────────────────',
     ]));
-    // Before the response arrives, there's nothing meaningful to show.
-    expect(out).toBeNull();
+    expect(out).toBe('Unfurling… (3s · thinking with high effort)');
   });
 
   it('picks up partial response text past the tip + spinner', () => {
@@ -77,7 +78,7 @@ describe('parseClaudeOutput', () => {
     ]))).toBeNull();
   });
 
-  it('handles the ✢ spinner marker too', () => {
+  it('shows ✢ spinner status during early thinking phase', () => {
     const out = parseClaudeOutput(pane([
       '❯ hi',
       '',
@@ -86,7 +87,58 @@ describe('parseClaudeOutput', () => {
       '────────────────────────────────',
       '❯ ',
     ]));
-    expect(out).toBeNull();
+    expect(out).toBe('Thinking… (1s)');
+  });
+
+  it('shows the · (middle-dot) spinner status as well', () => {
+    // Claude Code uses `·` as the leading glyph on the very first spinner
+    // frame; before adding it to SPINNER_MARKER the streaming card stayed
+    // empty until something else appeared.
+    const out = parseClaudeOutput(pane([
+      '❯ write an essay',
+      '',
+      '· Forming…',
+      '',
+      '────────────────────────────────',
+      '❯ ',
+    ]));
+    expect(out).toBe('Forming…');
+  });
+
+  it('keeps only the latest spinner frame when several stack in scrollback', () => {
+    // tmux can leave older spinner frames in scrollback if a redraw lagged;
+    // we only want the most recent status, not a stale stack.
+    const out = parseClaudeOutput(pane([
+      '❯ ponder this',
+      '',
+      '· Forming…',
+      '✢ Thinking… (1s)',
+      '✽ Channeling… (2s · ↓ 30 tokens)',
+      '',
+      '────────────────────────────────',
+      '❯ ',
+    ]));
+    expect(out).toBe('Channeling… (2s · ↓ 30 tokens)');
+  });
+
+  it('ignores prior-turn ● still visible in scrollback during current-turn thinking', () => {
+    // The `i > promptIdx` constraint must scope the ● search to the current
+    // turn so a previous turn's response doesn't get streamed as if it were
+    // new content for the current turn.
+    const out = parseClaudeOutput(pane([
+      '❯ first turn',
+      '',
+      '● Old answer from turn 1.',
+      '',
+      '────────────────────────────────',
+      '❯ second turn — still thinking',
+      '',
+      '✽ Forming… (1s)',
+      '',
+      '────────────────────────────────',
+      '❯ ',
+    ]));
+    expect(out).toBe('Forming… (1s)');
   });
 
   it('preserves markdown bullets (asterisk) in the response body', () => {

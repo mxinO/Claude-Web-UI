@@ -122,17 +122,24 @@ export function stopStreaming(opts: { quiet?: boolean } = {}): void {
  *    This bounds the search so we never anchor on an older turn's `●`.
  * 2. Within that range, find the LAST `●` marker line — the currently
  *    streaming text block (or the most recent tool-use card if no text
- *    has arrived yet). Return null if no `●` exists (still thinking).
- * 3. Collect lines from there to a separator or the empty bottom prompt.
- * 4. Pad the marker with spaces (preserves indent for the dedent pass),
- *    drop thinking-spinner lines and TUI tip blocks, dedent by min-indent.
+ *    has arrived yet). Anchor collection on it.
+ * 3. If no `●` exists yet (Claude is in the pre-text thinking phase),
+ *    fall back to anchoring on the user prompt and surface the latest
+ *    spinner-status line ("Forming… (3s · …)") as the preview, so the
+ *    streaming card isn't blank during long thinks.
+ * 4. Collect lines from there to a separator or the empty bottom prompt.
+ * 5. Pad the marker with spaces (preserves indent for the dedent pass),
+ *    drop thinking spinners (or surface the last one in fallback mode),
+ *    drop TUI tip blocks, dedent by min-indent.
  */
 // The `●` marker prefixes Claude's final response text.
 const RESPONSE_MARKER = /^\s*●\s+/;
-// These cycle chars prefix in-progress thinking spinner lines ("Unfurling…").
-// Deliberately narrow to known spinner glyphs — `*` is excluded because it's a
-// legitimate markdown bullet and `·` because it appears in prose qualifiers.
-const SPINNER_MARKER = /^\s*[✢✽✶⚡]\s+/;
+// These cycle chars prefix in-progress thinking spinner lines ("Unfurling…",
+// "Forming…"). The middle-dot `·` is also used as the leading glyph on the
+// first frame of the spinner — without it we miss the very-early-thinking
+// state and the streaming card stays empty until something else lands.
+// `*` is still excluded because it's a legitimate markdown bullet.
+const SPINNER_MARKER = /^\s*[·✢✽✶⚡]\s+/;
 
 export function parseClaudeOutput(paneContent: string): string | null {
   const lines = paneContent.split('\n');
@@ -149,15 +156,30 @@ export function parseClaudeOutput(paneContent: string): string | null {
 
   if (promptIdx === -1) return null;
 
-  // Anchor on the LAST `●` marker line after the user prompt. Claude Code
-  // renders multiple `●` blocks per turn (one per text block, plus one per
-  // tool call); we want to stream only the current block — anything earlier
-  // (tool cards, completed prose) is already visible in the final event.
+  // Prefer to anchor on the LAST `●` marker line after the user prompt.
+  // Claude Code renders multiple `●` blocks per turn (one per text block plus
+  // one per tool card); only the current block is worth previewing.
+  // If no `●` exists yet (Claude is still in the pre-text thinking phase),
+  // fall back to anchoring on the user prompt so we can surface the spinner
+  // status line ("Forming… (2s · 85 tokens · thinking with high effort)") as
+  // useful progress feedback instead of leaving the card blank.
   let responseStart = -1;
   for (let i = lines.length - 1; i > promptIdx; i--) {
     if (RESPONSE_MARKER.test(lines[i])) { responseStart = i; break; }
   }
-  if (responseStart === -1) return null;  // no response text yet — just thinking
+  const inThinkingFallback = responseStart === -1;
+  if (inThinkingFallback) {
+    // Skip the user message's wrapped continuation (indented lines without ❯)
+    // until the first blank line, then start collecting from there.
+    let i = promptIdx + 1;
+    while (i < lines.length) {
+      const trimmed = lines[i].trim();
+      if (trimmed === '') { i++; break; }
+      if (trimmed.startsWith('❯')) break;
+      i++;
+    }
+    responseStart = i;
+  }
 
   // Collect response lines until a turn separator or the bottom empty prompt
   const responseLines: string[] = [];
@@ -184,10 +206,21 @@ export function parseClaudeOutput(paneContent: string): string | null {
   //   - Response marker (`● …`) → replace marker with equivalent-width padding
   //     so the dedent pass below sees the true body indent.
   //   - Everything else passes through untouched.
+  // Pass 1 — drop or surface spinner lines (see thinking-fallback below),
+  // pad response markers so dedent sees the body indent, leave others alone.
+  // In fallback mode we keep only the LAST spinner; tmux can render multiple
+  // frames in scrollback if a redraw lagged, and we don't want a stale stack.
   type Classified = { text: string; isResponseStart: boolean };
   const classified: Classified[] = [];
+  let lastSpinner: Classified | null = null;
   for (const line of responseLines) {
-    if (SPINNER_MARKER.test(line)) continue;               // drop thinking spinners
+    const sm = line.match(SPINNER_MARKER);
+    if (sm) {
+      if (inThinkingFallback) {
+        lastSpinner = { text: ' '.repeat(sm[0].length) + line.slice(sm[0].length), isResponseStart: false };
+      }
+      continue;
+    }
     const rm = line.match(RESPONSE_MARKER);
     if (rm) {
       classified.push({ text: ' '.repeat(rm[0].length) + line.slice(rm[0].length), isResponseStart: true });
@@ -195,6 +228,7 @@ export function parseClaudeOutput(paneContent: string): string | null {
       classified.push({ text: line, isResponseStart: false });
     }
   }
+  if (lastSpinner) classified.push(lastSpinner);
 
   // Pass 2 — drop TUI tips (`⎿  Tip: …`) and their wrapped continuations.
   // A response-marker line (●) unambiguously ends any tip context, which
