@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.5 — 2026-05-06
+
+### New Features
+- **Installable via npm** — `npm install -g github:mxinO/Claude-Web-UI` (or the `archive/refs/heads/main.tar.gz` URL) puts a `claude-web-ui` command on `$PATH`. Subcommands: default = start, `--update` = reinstall the latest main, `where` = print the install dir, `--help`. Per-user installs only (server writes to its install dir at runtime)
+- **Capture every assistant text block** — Claude Code's `Stop` hook only ships the final text; anything Claude said before/between tool calls in the same turn used to be dropped. The server now tails the JSONL transcript on each tool hook and persists each text block as its own `assistant_message` event, with UUID dedup to prevent double-insert and a Stop fallback for the rare case the JSONL hasn't flushed by Stop time
+
+### UX Improvements
+- **Chronological event order regardless of insert order** — events are now stored with the JSONL entry's own timestamp (ms precision) and sorted by `(timestamp, id)` in both the API response and the live WebSocket-driven UI. So when intermediate text lands seconds after the tool_result it preceded, it still displays in the right place
+- **Pagination cursor follows the new sort order** — `loadOlderEvents` uses a compound `(timestamp, id) <` boundary so scroll-up doesn't skip events whose JSONL-late insert landed with a higher id
+
+### Misc
+- `prepare` script in package.json builds the frontend at install time so the published tarball contains the `dist/`. Uses `node_modules/.bin/vite` explicitly so git-spec installs don't trip on PATH ambiguity
+- `tsx` moved from devDependencies → dependencies so the runtime TypeScript executor isn't pruned
+
+---
+
 ## v1.4 — 2026-04-25
 
 ### New Features
