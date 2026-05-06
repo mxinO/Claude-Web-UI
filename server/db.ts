@@ -19,7 +19,10 @@ export function initDb(dbPath = 'claude-web-ui.sqlite'): void {
     CREATE TABLE IF NOT EXISTS events (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id     TEXT NOT NULL REFERENCES sessions(id),
-      timestamp      TEXT NOT NULL DEFAULT (datetime('now')),
+      -- Millisecond precision so rows lex-sort against JSONL ms-precision
+      -- timestamps inserted via the application code path. Bare INSERTs that
+      -- omit timestamp still get the same shape.
+      timestamp      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
       event_type     TEXT NOT NULL,
       agent_id       TEXT,
       agent_type     TEXT,
@@ -87,6 +90,21 @@ interface EventFields {
   message_text?: string | null;
   status?: string;
   file_before?: string | null;
+  /** Override the row's timestamp. Use when the event chronologically
+   *  belongs at a different point than insertion time (e.g. JSONL-tail
+   *  capture inserts intermediate text with the JSONL's timestamp so
+   *  the events sort in chronological order even when inserted late). */
+  timestamp?: string;
+}
+
+/** Format Date.now() into the same shape SQLite's `datetime('now')` produces
+ *  but with millisecond precision so it sorts lex-correctly against ms-precision
+ *  timestamps captured from the JSONL transcript. */
+function nowMs(): string {
+  const d = new Date();
+  const pad = (n: number, w = 2) => n.toString().padStart(w, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}.${pad(d.getUTCMilliseconds(), 3)}`;
 }
 
 export function insertEvent(sessionId: string, eventType: string, fields: EventFields = {}): number {
@@ -99,15 +117,16 @@ export function insertEvent(sessionId: string, eventType: string, fields: EventF
     message_text = null,
     status = 'pending',
     file_before = null,
+    timestamp = nowMs(),
   } = fields;
 
   const result = getDb().prepare(`
     INSERT INTO events
       (session_id, event_type, agent_id, agent_type, tool_name, tool_input,
-       tool_response, message_text, status, file_before)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       tool_response, message_text, status, file_before, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(sessionId, eventType, agent_id, agent_type, tool_name, tool_input,
-         tool_response, message_text, status, file_before);
+         tool_response, message_text, status, file_before, timestamp);
 
   return result.lastInsertRowid as number;
 }
@@ -131,22 +150,38 @@ export function getEvents(sessionId: string, options: GetEventsOptions = {}): Db
   const conditions: string[] = ['session_id = ?'];
   const params: unknown[] = [sessionId];
 
+  // Pagination cursors: rows are sorted by (timestamp, id). The cursor
+  // therefore needs BOTH coordinates — using just `id < ?` would skip rows
+  // whose JSONL-late insertion landed with a higher id but earlier timestamp.
+  // Look up the boundary row's timestamp and use a row-value comparison.
   if (before !== undefined) {
-    conditions.push('id < ?');
-    params.push(before);
+    const boundary = getDb().prepare('SELECT timestamp FROM events WHERE id = ?').get(before) as { timestamp: string } | undefined;
+    if (boundary) {
+      conditions.push('(timestamp, id) < (?, ?)');
+      params.push(boundary.timestamp, before);
+    } else {
+      conditions.push('id < ?');
+      params.push(before);
+    }
   }
   if (afterId !== undefined) {
-    conditions.push('id > ?');
-    params.push(afterId);
+    const boundary = getDb().prepare('SELECT timestamp FROM events WHERE id = ?').get(afterId) as { timestamp: string } | undefined;
+    if (boundary) {
+      conditions.push('(timestamp, id) > (?, ?)');
+      params.push(boundary.timestamp, afterId);
+    } else {
+      conditions.push('id > ?');
+      params.push(afterId);
+    }
   }
 
   // afterId: get events after a point, ascending (for WebSocket catch-up)
   // before: get N most recent events before a point (for scroll-up pagination)
   // neither: get the latest N events (for initial load)
-  // In all cases, return in chronological order (oldest first)
+  // In all cases, return in chronological order (oldest first).
   const wantLatest = before !== undefined || (afterId === undefined && limit !== undefined);
   const order = wantLatest ? 'DESC' : 'ASC';
-  let sql = `SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY id ${order}`;
+  let sql = `SELECT * FROM events WHERE ${conditions.join(' AND ')} ORDER BY timestamp ${order}, id ${order}`;
   if (limit !== undefined) {
     sql += ` LIMIT ?`;
     params.push(limit);

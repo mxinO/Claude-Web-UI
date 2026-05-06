@@ -286,11 +286,23 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       // anything else is mid-turn streaming text. Stable enum, not raw API
       // values, so the UI doesn't see surprises like `"tool_use"`.
       const isFinal = (msg?.stop_reason as string | undefined) === 'end_turn';
+      // Use the JSONL entry's own timestamp so the row sorts in chronological
+      // order — even when this insert lands AFTER a tool_result that
+      // chronologically came later. Round-trip through Date so timezone
+      // suffixes other than `Z` (`+00:00`, etc.) all normalize to UTC ms,
+      // matching the shape `nowMs()` produces.
+      const isoTs = entry.timestamp as string | undefined;
+      let ts: string | undefined;
+      if (isoTs) {
+        const d = new Date(isoTs);
+        if (!Number.isNaN(d.getTime())) ts = d.toISOString().replace('T', ' ').replace('Z', '');
+      }
       const eventId = insertEvent(sessionId, 'assistant_message', {
         message_text: text,
         status: isFinal ? 'end_turn' : 'streaming',
         agent_id: agentId,
         agent_type: agentType,
+        timestamp: ts,
       });
       const event = getEvent(eventId);
       if (event) bc.broadcastEvent(sessionId, event);
@@ -572,18 +584,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     // Pause streaming while the tool runs — post-tool-use resumes it. Pass
     // `quiet` so the UI keeps the preview card visible instead of flickering.
     stopStreaming({ quiet: true });
-    // Persist any assistant text emitted before this tool call. Claude Code
-    // writes one JSONL line per part, but the OS-level flush can lag the
-    // hook by a few hundred ms — so retry briefly so we capture the text
-    // BEFORE PostToolUse inserts the tool_result event (otherwise the UI
-    // shows tool_result above the intermediate text).
-    // ensureSession before insertEvent to avoid an FK violation if the
-    // session row hasn't been created yet (rare but possible on fast turns).
+    // Capture any assistant text Claude emitted before this tool call.
+    // Best-effort — if the JSONL hasn't flushed yet we'll catch it on the
+    // next hook (PostToolUse or Stop). Each row carries its own JSONL
+    // timestamp so the API sorts events chronologically regardless of
+    // insertion order. ensureSession first to avoid FK violations.
     ensureSession(session_id, cwd);
     captureIntermediateText(session_id, transcript_path, cwd);
-    for (const delay of [100, 250, 500, 1000]) {
-      setTimeout(() => captureIntermediateText(session_id, transcript_path, cwd), delay).unref?.();
-    }
 
     // Snapshot file before Edit/Write overwrites it.
     // For Edit: only snapshot on the FIRST edit to a file this turn.
@@ -630,7 +637,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   });
 
   // ── /post-tool-use ───────────────────────────────────────────────────────
-  app.post('/hooks/post-tool-use', async (req: Request, res: Response) => {
+  app.post('/hooks/post-tool-use', (req: Request, res: Response) => {
     const { session_id, cwd, transcript_path, tool_name, tool_input, tool_response, agent_id, agent_type, tool_use_id } =
       req.body as {
         session_id?: string;
@@ -648,18 +655,12 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       return;
     }
     ensureSession(session_id, cwd);
-    // Capture any intermediate text Claude emitted before this tool ran,
-    // BEFORE inserting tool_result, so event_ids reflect chronological
-    // order. Poll briefly for the OS-level flush of the JSONL to catch up
-    // (Claude Code writes assistant text on a separate stream that can lag
-    // the tool_use line by a few hundred ms). Bail as soon as a poll
-    // returns inserts so no-text tool calls don't wait the full budget.
-    if (captureIntermediateText(session_id, transcript_path, cwd) === 0) {
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 50));
-        if (captureIntermediateText(session_id, transcript_path, cwd) > 0) break;
-      }
-    }
+    // Capture any intermediate text Claude emitted before this tool ran.
+    // Each row is inserted with the JSONL entry's own timestamp, so event
+    // ordering (sorted by timestamp at query time) stays correct even when
+    // capture lands AFTER tool_result is recorded — no need to poll for
+    // the OS-level flush, which can take seconds.
+    captureIntermediateText(session_id, transcript_path, cwd);
 
     // Build diff snippet for Edit/Write tools
     // Stored as JSON: {"before":"...","after":"..."} in file_before column

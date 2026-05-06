@@ -31,7 +31,7 @@ export function useEventStore(): UseEventStoreReturn {
     fetch(`/api/events?session_id=${encodeURIComponent(newSession.id)}&limit=${PAGE_LIMIT}`)
       .then(res => res.ok ? res.json() : [])
       .then((fetched: TimelineEvent[]) => {
-        // API returns chronological order (ASC by id)
+        // API returns chronological order (ASC by timestamp, id as tiebreaker)
         setEvents(fetched);
         if (fetched.length === PAGE_LIMIT) {
           setHasMore(true);
@@ -51,11 +51,31 @@ export function useEventStore(): UseEventStoreReturn {
         return [...filtered, event];
       }
 
+      // Insert by chronological timestamp, not arrival order. Server captures
+      // intermediate assistant text by tailing the JSONL transcript, which can
+      // arrive AFTER the tool_result that chronologically came later — sorting
+      // by timestamp keeps the UI in conversation order regardless. id is the
+      // tiebreaker for events with identical timestamps.
+      const insertSorted = (arr: TimelineEvent[]): TimelineEvent[] => {
+        const ts = event.timestamp || '';
+        let lo = 0, hi = arr.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          const midTs = arr[mid].timestamp || '';
+          // Skip the transient tool_running (it has no real timestamp); always
+          // keep it at the end so sorted insertion goes before it.
+          if (arr[mid].event_type === 'tool_running') { hi = mid; continue; }
+          if (midTs < ts || (midTs === ts && arr[mid].id < event.id)) lo = mid + 1;
+          else hi = mid;
+        }
+        return [...arr.slice(0, lo), event, ...arr.slice(lo)];
+      };
+
       // When a real tool_result arrives, remove the transient tool_running
       if (event.event_type === 'tool_result' || (event.event_type === 'tool_use' && event.status === 'completed')) {
         const filtered = prev.filter(e => e.event_type !== 'tool_running');
         if (filtered.some(e => e.id === event.id)) return filtered;
-        const next = [...filtered, event];
+        const next = insertSorted(filtered);
         if (next.length > MAX_EVENTS) {
           setHasMore(true);
           return next.slice(next.length - MAX_EVENTS);
@@ -67,7 +87,7 @@ export function useEventStore(): UseEventStoreReturn {
       if (prev.some(e => e.id === event.id)) {
         return prev;
       }
-      const next = [...prev, event];
+      const next = insertSorted(prev);
       if (next.length > MAX_EVENTS) {
         setHasMore(true);
         return next.slice(next.length - MAX_EVENTS);
