@@ -71,8 +71,8 @@ function FullFileButton({ filePath }: { filePath: string }) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `HTTP ${res.status}`);
       }
-      const data = await res.json();
-      setContent(data.content);
+      // /api/file streams raw bytes now (no JSON wrapper). Read as text.
+      setContent(await res.text());
       setState('idle');
     } catch (err) {
       setState('error');

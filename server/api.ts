@@ -31,14 +31,30 @@ export function addAllowedRoot(_dir: string): void {}
 
 function isPathSafe(filePath: string): boolean {
   try {
-    const resolved = path.resolve(filePath);
     if (filePath.includes('..')) return false;
-    // Confine to Claude's working directory
-    const root = getClaudeCwd();
-    if (resolved !== root && !resolved.startsWith(root + '/')) return false;
-    // Block sensitive dotfiles/dirs
+    const resolved = path.resolve(filePath);
+
+    // Resolve symlinks to their real target. Without this, a symlink
+    // inside Claude's cwd pointing at /etc/shadow or ~/.ssh/id_rsa would
+    // pass the confinement check and then fs.sendFile would stream the
+    // real target. For paths that don't exist yet (write/mkdir), resolve
+    // the parent and treat the leaf as not-a-symlink.
+    const realPathOf = (p: string): string => {
+      try {
+        return fs.realpathSync(p);
+      } catch {
+        const parent = path.dirname(p);
+        try { return path.join(fs.realpathSync(parent), path.basename(p)); }
+        catch { return p; }
+      }
+    };
+    const real = realPathOf(resolved);
+    const root = realPathOf(getClaudeCwd());
+    if (real !== root && !real.startsWith(root + '/')) return false;
+    // Block sensitive dotfiles/dirs (check the real path so symlinks can't
+    // dodge by aliasing under an innocent-looking name).
     const blocked = ['.ssh', '.gnupg', '.aws', '.config/gcloud', '.env'];
-    if (blocked.some(b => resolved.includes('/' + b + '/') || resolved.endsWith('/' + b))) return false;
+    if (blocked.some(b => real.includes('/' + b + '/') || real.endsWith('/' + b))) return false;
     return true;
   } catch { return false; }
 }
@@ -533,7 +549,12 @@ export function registerApiRoutes(app: Express): void {
 
   // Read a file on demand (for "expand full file" in diff viewer)
   // Safety: only allow reading files within the managed session's cwd
-  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+  // Stream a file's raw bytes with Content-Type derived from extension.
+  // res.sendFile uses fs.createReadStream under the hood, so even a 50 MB
+  // file never sits in server memory. Browsers can render images, PDFs,
+  // SVGs, etc. directly via `<img src>` / `<embed src>`. Text consumers
+  // call `await res.text()` instead of `await res.json()`.
   router.get('/file', (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) {
@@ -544,17 +565,32 @@ export function registerApiRoutes(app: Express): void {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
+    const resolved = path.resolve(filePath);
+    let stat: fs.Stats;
     try {
-      const stat = fs.statSync(filePath);
-      if (stat.size > MAX_FILE_SIZE) {
-        res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB, max 5MB)` });
-        return;
-      }
-      const content = fs.readFileSync(filePath, 'utf-8');
-      res.json({ path: filePath, content, size: stat.size });
+      stat = fs.statSync(resolved);
     } catch (err) {
       res.status(404).json({ error: `Cannot read file: ${err}` });
+      return;
     }
+    if (!stat.isFile()) {
+      res.status(400).json({ error: 'Not a file' });
+      return;
+    }
+    if (stat.size > MAX_FILE_SIZE) {
+      res.status(413).json({
+        error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)}MB, max ${MAX_FILE_SIZE / 1024 / 1024}MB)`,
+      });
+      return;
+    }
+    res.sendFile(resolved, (err) => {
+      if (!err) return;
+      // Log so a mid-stream failure (truncated response) isn't silent.
+      console.error(`[/api/file] stream error for ${resolved}: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).json({ error: `Stream error: ${err.message}` });
+      }
+    });
   });
 
   // Download a file (binary-safe, triggers browser download)

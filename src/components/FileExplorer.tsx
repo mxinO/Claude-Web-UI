@@ -24,7 +24,7 @@ interface FileExplorerProps {
 export default function FileExplorer({ onInsert }: FileExplorerProps) {
   const [roots, setRoots] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
-  const [viewFile, setViewFile] = useState<{ path: string; content: string } | null>(null);
+  const [viewFile, setViewFile] = useState<{ path: string; kind: 'text' | 'image' | 'embed'; text?: string } | null>(null);
   const [editFile, setEditFile] = useState<{ path: string; content: string } | null>(null);
   const editContentRef = useRef<string>('');
   const [editSaving, setEditSaving] = useState(false);
@@ -114,11 +114,24 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
   );
 
   const handleView = useCallback(async (filePath: string) => {
+    // Decide rendering strategy from extension. Images and PDFs go through
+    // the browser directly via the streaming /api/file endpoint — no need
+    // to read them into JS memory. Everything else fetched as text.
+    const ext = (filePath.split('.').pop() || '').toLowerCase();
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+    const embedExts = ['pdf'];
+    if (imageExts.includes(ext)) {
+      setViewFile({ path: filePath, kind: 'image' });
+      return;
+    }
+    if (embedExts.includes(ext)) {
+      setViewFile({ path: filePath, kind: 'embed' });
+      return;
+    }
     try {
       const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
       if (!res.ok) return;
-      const data = await res.json();
-      setViewFile({ path: data.path || filePath, content: data.content || '' });
+      setViewFile({ path: filePath, kind: 'text', text: await res.text() });
     } catch {
       /* ignore */
     }
@@ -203,10 +216,9 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
     try {
       const res = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
       if (!res.ok) return;
-      const data = await res.json();
-      const content = data.content || '';
+      const content = await res.text();
       editContentRef.current = content;
-      setEditFile({ path: data.path || filePath, content });
+      setEditFile({ path: filePath, content });
     } catch { /* ignore */ }
   }, []);
 
@@ -351,8 +363,23 @@ export default function FileExplorer({ onInsert }: FileExplorerProps) {
                 &times;
               </button>
             </div>
-            <div className="modal-body">
-              <pre className="bash-output" style={{ maxHeight: 'none' }}>{viewFile.content}</pre>
+            <div className="modal-body" style={{ display: 'flex', alignItems: viewFile.kind === 'image' ? 'center' : 'stretch', justifyContent: 'center' }}>
+              {viewFile.kind === 'image' && (
+                <img
+                  src={`/api/file?path=${encodeURIComponent(viewFile.path)}`}
+                  alt={viewFile.path}
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                />
+              )}
+              {viewFile.kind === 'embed' && (
+                <embed
+                  src={`/api/file?path=${encodeURIComponent(viewFile.path)}`}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                />
+              )}
+              {viewFile.kind === 'text' && (
+                <pre className="bash-output" style={{ maxHeight: 'none', width: '100%', margin: 0 }}>{viewFile.text}</pre>
+              )}
             </div>
           </div>
         </div>

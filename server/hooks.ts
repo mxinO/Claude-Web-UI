@@ -199,9 +199,105 @@ function findSessionDbPath(projectsDir: string, sessionId: string, cwd: string):
   return path.join(projectsDir, projectDirName, dbName);
 }
 
+// Per-session set of assistant entry UUIDs we've already inserted as events.
+// Used by captureIntermediateText() to avoid double-inserting on repeated
+// hook fires within a turn. Cleared when the managed session changes.
+const processedAssistantUuids = new Map<string, Set<string>>();
+// Per-session text inserted via the Stop fallback (no JSONL uuid yet).
+// captureIntermediateText consults this so a delayed JSONL flush — which
+// arrives during the next PreToolUse — doesn't double-insert the same text.
+const fallbackInsertedText = new Map<string, string>();
+
+/** Locate the JSONL transcript for a session. Hooks pass `transcript_path`
+ *  in their payload (per docs); fall back to the same discovery logic
+ *  findSessionDbPath uses, so this works even if the hook doesn't include it. */
+function locateTranscript(sessionId: string, hintPath: string | undefined, cwd: string | undefined): string | null {
+  if (hintPath && fs.existsSync(hintPath)) return hintPath;
+  const home = process.env.HOME || '/root';
+  const projectsDir = path.join(home, '.claude', 'projects');
+  const jsonlName = `${sessionId}.jsonl`;
+  try {
+    for (const dir of fs.readdirSync(projectsDir)) {
+      const p = path.join(projectsDir, dir, jsonlName);
+      if (fs.existsSync(p)) return p;
+    }
+  } catch { /* projectsDir missing */ }
+  if (cwd) {
+    const projectDirName = cwd.replace(/[^a-zA-Z0-9.]/g, '-');
+    const p = path.join(projectsDir, projectDirName, jsonlName);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
 export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   // Wire up the session ID getter for queue.ts (breaks circular import)
   setSessionIdGetter(() => managedSessionId);
+
+  /** Tail the JSONL transcript and persist any assistant text blocks we
+   *  haven't yet captured. Claude Code emits one JSONL entry per part —
+   *  text and tool_use are separate lines in chronological order — and
+   *  there's no per-text-block hook, so the only way to recover the
+   *  text Claude emits before/between tool calls is to read the JSONL
+   *  ourselves. UUID dedup means calling this from multiple hooks
+   *  (PreToolUse, PostToolUse, Stop) is safe.
+   *  Returns the number of new events inserted. */
+  function captureIntermediateText(sessionId: string, transcriptPath?: string, cwd?: string): number {
+    if (!sessionId) return 0;
+    const jsonlPath = locateTranscript(sessionId, transcriptPath, cwd);
+    if (!jsonlPath) return 0;
+    let content: string;
+    try { content = fs.readFileSync(jsonlPath, 'utf-8'); }
+    catch { return 0; }
+    let seen = processedAssistantUuids.get(sessionId);
+    if (!seen) { seen = new Set(); processedAssistantUuids.set(sessionId, seen); }
+    let inserts = 0;
+    for (const line of content.split('\n')) {
+      if (!line.trim()) continue;
+      let entry: Record<string, unknown>;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (entry.type !== 'assistant') continue;
+      const uuid = entry.uuid as string | undefined;
+      if (!uuid || seen.has(uuid)) continue;
+      seen.add(uuid);
+      const msg = entry.message as Record<string, unknown> | undefined;
+      const parts = msg?.content;
+      if (!Array.isArray(parts)) continue;
+      let text = '';
+      for (const p of parts) {
+        if (p && typeof p === 'object' && (p as Record<string, unknown>).type === 'text') {
+          const t = (p as Record<string, unknown>).text;
+          if (typeof t === 'string') text += t;
+        }
+      }
+      if (!text.trim()) continue;
+      // Skip if the Stop fallback already inserted this exact text. The map
+      // is cleared on match so a second occurrence of the same text in a
+      // later turn would still be inserted normally.
+      if (fallbackInsertedText.get(sessionId) === text) {
+        fallbackInsertedText.delete(sessionId);
+        continue;
+      }
+      // Sub-agent attribution: top-level `isSidechain` + an attached
+      // session/agent identifier. Best-effort propagation.
+      const agentId = (entry.agentId as string | undefined) ?? (entry.subagent_id as string | undefined) ?? null;
+      const agentType = (entry.agentType as string | undefined) ?? (entry.subagent_type as string | undefined) ?? null;
+      // `stop_reason: 'end_turn'` marks the FINAL text block of the turn;
+      // anything else is mid-turn streaming text. Stable enum, not raw API
+      // values, so the UI doesn't see surprises like `"tool_use"`.
+      const isFinal = (msg?.stop_reason as string | undefined) === 'end_turn';
+      const eventId = insertEvent(sessionId, 'assistant_message', {
+        message_text: text,
+        status: isFinal ? 'end_turn' : 'streaming',
+        agent_id: agentId,
+        agent_type: agentType,
+      });
+      const event = getEvent(eventId);
+      if (event) bc.broadcastEvent(sessionId, event);
+      inserts++;
+    }
+    return inserts;
+  }
 
   // Middleware: silently drop events from non-managed sessions
   app.use('/hooks', (req: Request, res: Response, next) => {
@@ -293,6 +389,31 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     createSession(session_id, model, cwd);
     if (cwd) addAllowedRoot(cwd);
+    // Pre-populate the assistant-UUID seen set with anything already in the
+    // JSONL — those messages either came from importFromJsonl (above) or
+    // belong to a resumed session whose events are already in our DB.
+    // Without this, the first PreToolUse/PostToolUse would re-insert them.
+    // Note: importFromJsonl merges all text parts of one assistant entry
+    // into a single event, while the live capture below splits per-part.
+    // This causes a cosmetic difference between resumed and freshly-created
+    // sessions — older turns appear as one paragraph, new turns as one
+    // event per text block. Acceptable; not worth a backfill migration.
+    {
+      const jsonlPath = locateTranscript(session_id, undefined, cwd);
+      if (jsonlPath) {
+        try {
+          const seen = new Set<string>();
+          for (const line of fs.readFileSync(jsonlPath, 'utf-8').split('\n')) {
+            if (!line.trim()) continue;
+            try {
+              const entry = JSON.parse(line);
+              if (entry.type === 'assistant' && typeof entry.uuid === 'string') seen.add(entry.uuid);
+            } catch { /* skip bad line */ }
+          }
+          processedAssistantUuids.set(session_id, seen);
+        } catch { /* JSONL not yet present */ }
+      }
+    }
     res.json({ ok: true });
   });
 
@@ -305,6 +426,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     ensureSession(session_id, cwd);
     endSession(session_id);
+    processedAssistantUuids.delete(session_id);
+    fallbackInsertedText.delete(session_id);
     res.json({ ok: true });
   });
 
@@ -361,10 +484,9 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   // ── /stop (assistant message) ────────────────────────────────────────────
   app.post('/hooks/stop', (req: Request, res: Response) => {
     if (DEBUG) console.log('[hook:stop]', JSON.stringify(req.body).slice(0, 500));
-    const { session_id, cwd, assistant_message, last_assistant_message, stop_reason, agent_id, agent_type } = req.body as Record<
-      string,
-      string | undefined
-    >;
+    const { session_id, cwd, transcript_path, assistant_message, last_assistant_message, stop_reason } =
+      req.body as Record<string, string | undefined>;
+    const finalText = last_assistant_message ?? assistant_message;
     if (!session_id) {
       res.status(400).json({ error: 'session_id is required' });
       return;
@@ -376,17 +498,34 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     for (const key of turnSnapshots.keys()) {
       if (key.startsWith(session_id + ':')) turnSnapshots.delete(key);
     }
-    const eventId = insertEvent(session_id, 'assistant_message', {
-      message_text: last_assistant_message ?? assistant_message ?? null,
-      status: stop_reason ?? 'end_turn',
-      agent_id: agent_id ?? null,
-      agent_type: agent_type ?? null,
-    });
-    const event = getEvent(eventId)!;
-    bc.broadcastEvent(session_id, event);
+    // Capture every assistant text block — including the final one — from
+    // the JSONL transcript. UUID dedup keeps repeated per-tool calls cheap.
+    captureIntermediateText(session_id, transcript_path, cwd);
+    // Fallback for when the JSONL flush is racy: if the hook payload's
+    // `last_assistant_message` doesn't match the latest event in DB,
+    // insert it. captureIntermediateText's own text-equality check then
+    // prevents the late JSONL flush from creating a duplicate.
+    let fallbackEventId: number | undefined;
+    if (finalText) {
+      const lastRow = getDb().prepare(
+        `SELECT message_text FROM events WHERE session_id = ? AND event_type = 'assistant_message'
+         ORDER BY id DESC LIMIT 1`
+      ).get(session_id) as { message_text: string | null } | undefined;
+      if (lastRow?.message_text !== finalText) {
+        fallbackEventId = insertEvent(session_id, 'assistant_message', {
+          message_text: finalText,
+          status: 'end_turn',
+        });
+        const event = getEvent(fallbackEventId);
+        if (event) bc.broadcastEvent(session_id, event);
+        // Mark the text so a delayed JSONL flush in the next turn doesn't
+        // re-insert this message via captureIntermediateText.
+        fallbackInsertedText.set(session_id, finalText);
+      }
+    }
     // Claude finished this turn — mark idle (drains queue if messages pending)
     setClaudeBusy(false);
-    res.json({ ok: true, event_id: eventId });
+    res.json({ ok: true, event_id: fallbackEventId });
   });
 
   // ── /pre-tool-use ────────────────────────────────────────────────────────
@@ -418,9 +557,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   snapshotCleanupTimer.unref?.(); // don't keep process alive
 
   app.post('/hooks/pre-tool-use', (req: Request, res: Response) => {
-    const { session_id, cwd, tool_name, tool_input, tool_use_id } = req.body as {
+    const { session_id, cwd, transcript_path, tool_name, tool_input, tool_use_id } = req.body as {
       session_id?: string;
       cwd?: string;
+      transcript_path?: string;
       tool_name?: string;
       tool_input?: Record<string, unknown>;
       tool_use_id?: string;
@@ -432,6 +572,18 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     // Pause streaming while the tool runs — post-tool-use resumes it. Pass
     // `quiet` so the UI keeps the preview card visible instead of flickering.
     stopStreaming({ quiet: true });
+    // Persist any assistant text emitted before this tool call. Claude Code
+    // writes one JSONL line per part, but the OS-level flush can lag the
+    // hook by a few hundred ms — so retry briefly so we capture the text
+    // BEFORE PostToolUse inserts the tool_result event (otherwise the UI
+    // shows tool_result above the intermediate text).
+    // ensureSession before insertEvent to avoid an FK violation if the
+    // session row hasn't been created yet (rare but possible on fast turns).
+    ensureSession(session_id, cwd);
+    captureIntermediateText(session_id, transcript_path, cwd);
+    for (const delay of [100, 250, 500, 1000]) {
+      setTimeout(() => captureIntermediateText(session_id, transcript_path, cwd), delay).unref?.();
+    }
 
     // Snapshot file before Edit/Write overwrites it.
     // For Edit: only snapshot on the FIRST edit to a file this turn.
@@ -478,11 +630,12 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
   });
 
   // ── /post-tool-use ───────────────────────────────────────────────────────
-  app.post('/hooks/post-tool-use', (req: Request, res: Response) => {
-    const { session_id, cwd, tool_name, tool_input, tool_response, agent_id, agent_type, tool_use_id } =
+  app.post('/hooks/post-tool-use', async (req: Request, res: Response) => {
+    const { session_id, cwd, transcript_path, tool_name, tool_input, tool_response, agent_id, agent_type, tool_use_id } =
       req.body as {
         session_id?: string;
         cwd?: string;
+        transcript_path?: string;
         tool_name?: string;
         tool_input?: Record<string, unknown>;
         tool_response?: Record<string, unknown>;
@@ -495,6 +648,18 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       return;
     }
     ensureSession(session_id, cwd);
+    // Capture any intermediate text Claude emitted before this tool ran,
+    // BEFORE inserting tool_result, so event_ids reflect chronological
+    // order. Poll briefly for the OS-level flush of the JSONL to catch up
+    // (Claude Code writes assistant text on a separate stream that can lag
+    // the tool_use line by a few hundred ms). Bail as soon as a poll
+    // returns inserts so no-text tool calls don't wait the full budget.
+    if (captureIntermediateText(session_id, transcript_path, cwd) === 0) {
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 50));
+        if (captureIntermediateText(session_id, transcript_path, cwd) > 0) break;
+      }
+    }
 
     // Build diff snippet for Edit/Write tools
     // Stored as JSON: {"before":"...","after":"..."} in file_before column
