@@ -53,8 +53,6 @@ The server manages a Claude Code process inside a tmux session. Claude Code hook
 ### Install globally via npm (recommended)
 
 ```bash
-# Either form works:
-npm install -g github:mxinO/Claude-Web-UI
 npm install -g https://github.com/mxinO/Claude-Web-UI/archive/refs/heads/main.tar.gz
 
 claude-web-ui                                       # default: localhost:3001, cwd $PWD

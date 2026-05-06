@@ -13,7 +13,7 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
     "test": "vitest run",
-    "prepare": "test ! -f vite.config.ts || node_modules/.bin/vite build"
+    "prepare": "test ! -x node_modules/.bin/vite || node_modules/.bin/vite build"
   },
   "files": [
     "bin/",

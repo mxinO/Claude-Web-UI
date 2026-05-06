@@ -1,5 +1,9 @@
 node_modules/
-dist/
+# dist/ is committed so `npm install -g <main.tar.gz>` works without a
+# rebuild step. Some npm versions strip devDependencies during the
+# git/tarball install lifecycle, leaving `vite` unavailable in prepare —
+# committing the prebuilt dist/ avoids that failure path entirely.
+# `npm run build` still rewrites it locally for development.
 *.db
 data/
 .env

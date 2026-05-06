@@ -25,7 +25,10 @@ while [ -L "$SELF" ]; do
   esac
 done
 PKG_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
-GIT_PKG="${CLAUDE_WEB_UI_GIT_PKG:-github:mxinO/Claude-Web-UI}"
+# Default to the GitHub tarball URL rather than `github:user/repo`. Both work,
+# but the tarball form is more reliable: some npm versions handle the git-spec
+# lifecycle inconsistently (skipping devDependencies before `prepare`, etc.).
+GIT_PKG="${CLAUDE_WEB_UI_GIT_PKG:-https://github.com/mxinO/Claude-Web-UI/archive/refs/heads/main.tar.gz}"
 
 usage() {
   cat <<EOH
@@ -36,7 +39,7 @@ Usage:
       Start the web UI. Defaults: --host localhost, --port 3001, cwd \$PWD.
 
   claude-web-ui --update
-      Reinstall the latest main branch via 'npm install -g $GIT_PKG'.
+      Reinstall the latest main branch via npm install -g <main.tar.gz>.
 
   claude-web-ui where
       Print the install directory.
