@@ -1,0 +1,83 @@
+#!/bin/bash
+# claude-web-ui — start the Claude Code Web UI or update it from GitHub.
+#
+# Install:
+#   npm install -g github:mxinO/Claude-Web-UI
+#
+# Usage:
+#   claude-web-ui [--host HOST] [--port PORT] [--no-auth] [WORKING_DIR]
+#                                  Start the web UI.
+#   claude-web-ui --update         Reinstall from origin/main.
+#   claude-web-ui where            Print the install directory and exit.
+#   claude-web-ui --help
+set -euo pipefail
+
+# Resolve the package root. The bin file lives at <pkg>/bin/claude-web-ui;
+# even if invoked through an npm-created symlink on $PATH, follow each link
+# segment to find the real path. Avoids `readlink -f` since it's GNU-only
+# (macOS BSD readlink lacks `-f` pre-Monterey).
+SELF="${BASH_SOURCE[0]:-$0}"
+while [ -L "$SELF" ]; do
+  TARGET="$(readlink "$SELF")"
+  case "$TARGET" in
+    /*) SELF="$TARGET" ;;
+    *)  SELF="$(cd "$(dirname "$SELF")" && pwd)/$TARGET" ;;
+  esac
+done
+PKG_ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+GIT_PKG="${CLAUDE_WEB_UI_GIT_PKG:-github:mxinO/Claude-Web-UI}"
+
+usage() {
+  cat <<EOH
+claude-web-ui — Claude Code Web UI launcher
+
+Usage:
+  claude-web-ui [--host HOST] [--port PORT] [--no-auth] [WORKING_DIR]
+      Start the web UI. Defaults: --host localhost, --port 3001, cwd \$PWD.
+
+  claude-web-ui --update
+      Reinstall the latest main branch via 'npm install -g $GIT_PKG'.
+
+  claude-web-ui where
+      Print the install directory.
+
+Environment:
+  CLAUDE_WEB_UI_GIT_PKG   override the npm git spec used by --update
+                          (default: $GIT_PKG; supports e.g. github:user/repo#branch)
+
+Notes:
+  Install per-user only. The runtime writes to <install>/data/, so a
+  system-wide global install (root-owned /usr/local prefix) will fail
+  with EACCES on first start. Use 'npm install -g' from a user-owned
+  prefix such as \$HOME/.npm-global.
+EOH
+}
+
+cmd_update() {
+  command -v npm >/dev/null 2>&1 || { echo "Error: npm is required for --update" >&2; exit 1; }
+  echo "Reinstalling from $GIT_PKG..."
+  exec npm install -g "$GIT_PKG"
+}
+
+cmd_start() {
+  if [ ! -f "$PKG_ROOT/start.sh" ]; then
+    echo "Error: start.sh not found in $PKG_ROOT — broken install?" >&2
+    exit 1
+  fi
+  exec "$PKG_ROOT/start.sh" "$@"
+}
+
+case "${1:-}" in
+  --update|update)
+    cmd_update
+    ;;
+  --where|where)
+    echo "$PKG_ROOT"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    cmd_start "$@"
+    ;;
+esac

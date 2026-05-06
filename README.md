@@ -50,17 +50,26 @@ The server manages a Claude Code process inside a tmux session. Claude Code hook
 
 ## Quick Start
 
+### Install globally via npm (recommended)
+
 ```bash
-# One-liner: clone + install + build + start
+npm install -g github:mxinO/Claude-Web-UI
+
+claude-web-ui                                       # default: localhost:3001, cwd $PWD
+claude-web-ui /path/to/project                      # specific working directory
+claude-web-ui --host 0.0.0.0 --port 9999            # custom host/port
+claude-web-ui --update                              # reinstall the latest main branch
+```
+
+Install **per-user**, not system-wide — the server writes to its install dir at runtime. Use a user-owned npm prefix (e.g. `npm config set prefix ~/.npm-global`).
+
+### Or clone and run
+
+```bash
 git clone https://github.com/mxinO/Claude-Web-UI.git && cd Claude-Web-UI && ./start.sh
 
-# With a specific working directory
-./start.sh /path/to/project
-
-# Custom host and port
-./start.sh --host 0.0.0.0 --port 9999
-
-# Combine options
+./start.sh /path/to/project                         # specific working directory
+./start.sh --host 0.0.0.0 --port 9999               # custom host/port
 ./start.sh --host 0.0.0.0 --port 8080 /path/to/project
 ```
 
