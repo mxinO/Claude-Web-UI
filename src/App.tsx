@@ -172,10 +172,15 @@ export default function App() {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
       const id = bashIdRef.current--;
+      // Match the server's timestamp format ("YYYY-MM-DD HH:MM:SS.sss") so
+      // this event sorts chronologically alongside real events. ISO with the
+      // `T` separator + `Z` suffix would lex-sort AFTER everything because
+      // 'T' > ' ', pinning bash output to the bottom of the timeline.
+      const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
       addEvent({
         id,
         session_id: session?.id ?? '',
-        timestamp: new Date().toISOString(),
+        timestamp: ts,
         event_type: 'bash_output',
         agent_id: null,
         agent_type: null,
