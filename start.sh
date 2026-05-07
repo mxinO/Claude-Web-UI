@@ -118,10 +118,20 @@ cleanup() {
   trap - EXIT INT TERM  # prevent re-entry
   echo ""
   echo "Shutting down..."
-  # Kill the entire server process group (tsx + node children)
+  # Kill the entire server process group (tsx + node children). Bounded wait
+  # so we don't hang indefinitely if a child ignores SIGTERM — escalate to
+  # SIGKILL after ~3s. `wait` alone has no timeout.
   local had_server=0
   if [ -n "${SERVER_PID:-}" ]; then
     kill_server_pgid "$SERVER_PID" TERM
+    for _ in 1 2 3 4 5 6; do
+      kill -0 "$SERVER_PID" 2>/dev/null || break
+      sleep 0.5
+    done
+    if kill -0 "$SERVER_PID" 2>/dev/null; then
+      echo "Server didn't exit on TERM after 3s — sending KILL..."
+      kill_server_pgid "$SERVER_PID" KILL
+    fi
     wait "$SERVER_PID" 2>/dev/null || true
     had_server=1
   fi
