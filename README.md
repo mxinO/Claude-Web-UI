@@ -153,6 +153,10 @@ Click the sun/moon icon in the header to toggle light/dark theme.
 
 ## Architecture
 
+> For a deeper walkthrough of how the pieces fit together — the tmux bridge,
+> hook event flow, live streaming, and the timestamp-ordering design — see
+> [DESIGN.md](DESIGN.md).
+
 ```
 claude-web-ui/
 ├── server/
