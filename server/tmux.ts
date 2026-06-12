@@ -62,6 +62,65 @@ export function sendInput(text: string): void {
   }, 260);
 }
 
+/** Capture the pane iff Claude's native permission prompt is currently shown.
+ *  In interactive mode (Claude Code 2.x) tool permissions are gated by a
+ *  numbered TUI prompt, NOT the PermissionRequest hook — so the web UI must
+ *  drive this prompt directly. The prompt looks like:
+ *      Do you want to create foo.txt?
+ *      ❯ 1. Yes
+ *        2. Yes, allow all ... (shift+tab)
+ *        3. No
+ *      Esc to cancel · Tab to amend
+ *  We require BOTH the question text AND the TUI selection caret on a numbered
+ *  option (`❯ 1.`) — the mandatory caret keeps ordinary assistant prose that
+ *  merely contains "Do you want to ... 1." from being mistaken for a prompt.
+ *  Returns the pane text on match, else null. */
+function capturePermissionPrompt(): string | null {
+  try {
+    const pane = execSync(
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -25`,
+      tmuxExecOpts(3000),
+    );
+    if (/Do you want to /.test(pane) && /❯\s+\d+\.\s/.test(pane)) return pane;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function isPermissionPromptVisible(): boolean {
+  return capturePermissionPrompt() !== null;
+}
+
+/** Answer Claude's native permission prompt.
+ *  allow → select option 1 ("Yes"); deny → Escape ("cancel").
+ *  Returns true if a prompt was visible and a key was sent. Only acts when a
+ *  prompt is actually showing, so a stray decision can't type into the input. */
+export function respondToPermissionPrompt(allow: boolean): boolean {
+  const pane = capturePermissionPrompt();
+  if (!pane) return false;
+  try {
+    if (allow) {
+      // Only auto-pick option 1 when it's the plain affirmative ("1. Yes").
+      // Claude orders the single-allow as option 1 and "allow all"/"No" after;
+      // refusing otherwise avoids silently granting a broader permission.
+      if (!/(^|\s)1\.\s+Yes\b/im.test(pane)) {
+        console.error('[respondToPermissionPrompt] option 1 is not a plain "Yes" — not auto-allowing');
+        return false;
+      }
+      // `-l` sends the literal digit (never interpreted as a tmux key name).
+      execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} -l 1`, execOpts);
+    } else {
+      // Escape triggers the prompt's own "Esc to cancel" → a clean rejection.
+      execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, execOpts);
+    }
+    return true;
+  } catch (err) {
+    console.error('[respondToPermissionPrompt] send-keys failed:', err);
+    return false;
+  }
+}
+
 export function getSessionStatus(): { alive: boolean; session: string } {
   try {
     execSync(`${TMUX} has-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);

@@ -17,7 +17,7 @@ import {
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
 import { exec, execSync, ChildProcess } from 'child_process';
-import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
+import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, respondToPermissionPrompt, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { autoRestartClaude } from './restart.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
@@ -260,6 +260,17 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     const decision = allow ? 'allow' : 'deny';
+
+    // Claude Code 2.x gates tool permissions with a NATIVE TUI prompt, not the
+    // PermissionRequest hook (which still fires but whose allow/deny response
+    // is ignored in interactive mode). Drive the on-screen prompt directly —
+    // this is the authoritative action — BEFORE the bookkeeping below, so the
+    // hook script's next poll can't observe the resolution and race us.
+    // allow → select "Yes", deny → Escape.
+    const drove = respondToPermissionPrompt(allow);
+
+    // Bookkeeping: resolve the (now-redundant) hook so its blocked poll loop
+    // exits, and mark the event for the UI.
     resolvePermission(req.params.id, decision);
     updateEvent(perm.event_id, { status: allow ? 'allowed' : 'denied' });
 
@@ -269,7 +280,7 @@ export function registerApiRoutes(app: Express): void {
       broadcastPermissionDecision(event.session_id, req.params.id, decision);
     }
 
-    res.json({ ok: true, decision });
+    res.json({ ok: true, decision, drovePrompt: drove });
   });
 
   // POST /api/send-input — send text to Claude via tmux (or queue if busy)
