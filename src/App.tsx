@@ -8,6 +8,8 @@ import ReconnectSummaryWidget from './components/ReconnectSummary';
 import ThinkingIndicator from './components/ThinkingIndicator';
 import StreamingCard from './components/StreamingCard';
 import BtwToast from './components/BtwToast';
+import QuestionPrompt from './components/QuestionPrompt';
+import type { QuestionData } from './components/QuestionPrompt';
 import AuthOverlay from './components/AuthOverlay';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { QueuedMessage } from './hooks/useWebSocket';
@@ -95,6 +97,7 @@ const SIDEBAR_DEFAULT = 260;
 export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
   const [btwData, setBtwData] = useState<{ question: string; response: string } | null>(null);
+  const [questionData, setQuestionData] = useState<QuestionData | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const streamingTextRef = useRef<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
@@ -146,6 +149,9 @@ export default function App() {
 
   const { connected } = useWebSocket({ onEvent, onStreaming, onQueueChange, session, setSession });
   const { needsAuth } = useAuthRecovery();
+
+  // A pending question bar belongs to one session; drop it if the session changes.
+  useEffect(() => { setQuestionData(null); }, [session?.id]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -297,15 +303,31 @@ export default function App() {
         detail: { question: 'Claude restart', response: `Claude died — resuming in ${cwd}…` }
       }));
     };
+    const questionHandler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as QuestionData | undefined;
+      if (detail && Array.isArray(detail.options) && detail.options.length) {
+        setQuestionData({ question: detail.question, options: detail.options });
+      }
+    };
+    const questionClearedHandler = () => setQuestionData(null);
+    // Drop any pending question bar when the connection drops, so it can't
+    // answer a stale session after reconnect/switch.
+    const dropQuestion = () => setQuestionData(null);
+    window.addEventListener('claude-dead', dropQuestion);
     window.addEventListener('claude-message-sent', handler);
     window.addEventListener('bash-output', scrollToBottom);
     window.addEventListener('claude-dead', deadHandler);
     window.addEventListener('claude-restarting', restartingHandler);
+    window.addEventListener('question-prompt', questionHandler);
+    window.addEventListener('question-cleared', questionClearedHandler);
     return () => {
       window.removeEventListener('claude-message-sent', handler);
       window.removeEventListener('bash-output', scrollToBottom);
       window.removeEventListener('claude-dead', deadHandler);
       window.removeEventListener('claude-restarting', restartingHandler);
+      window.removeEventListener('question-prompt', questionHandler);
+      window.removeEventListener('question-cleared', questionClearedHandler);
+      window.removeEventListener('claude-dead', dropQuestion);
     };
   }, []);
 
@@ -481,6 +503,12 @@ export default function App() {
             </div>
           </div>
 
+          {questionData && (
+            <QuestionPrompt
+              data={questionData}
+              onAnswered={() => setQuestionData(null)}
+            />
+          )}
           <InputBox isRunning={isRunning} />
         </div>{/* end .main-panel */}
       </div>{/* end .app-body */}

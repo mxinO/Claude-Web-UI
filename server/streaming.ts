@@ -8,8 +8,9 @@
 
 import { execSync } from 'child_process';
 import { broadcast } from './websocket.js';
-import { TMUX, TMUX_SESSION, TMUX_PANE, getSessionStatus } from './tmux.js';
+import { TMUX, TMUX_SESSION, TMUX_PANE, getSessionStatus, detectQuestionPrompt } from './tmux.js';
 const POLL_INTERVAL = 400; // ms
+const QUESTION_POLL_INTERVAL = 700; // ms
 // `stdio: pipe` keeps tmux's stderr (e.g. "no server running on …") out of
 // the parent process stdout when the session dies mid-poll.
 const CAPTURE_OPTS = { encoding: 'utf-8' as const, timeout: 2000, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] };
@@ -25,6 +26,47 @@ let captureFailCount = 0;
 let onClaudeDead: ((sessionId: string | null) => void) | null = null;
 export function setOnClaudeDead(cb: (sessionId: string | null) => void): void {
   onClaudeDead = cb;
+}
+
+// ── AskUserQuestion watcher ────────────────────────────────────────────────
+// The AskUserQuestion menu appears DURING tool execution (after PreToolUse
+// paused streaming), so the streaming poller above can't see it. Run a
+// separate, always-on, low-frequency poll that detects the menu and pushes it
+// to the browser so the user can answer with a click. Broadcasts on
+// transitions only (dedup by question+options key).
+let questionTimer: ReturnType<typeof setInterval> | null = null;
+let lastQuestionKey = '';
+let lastQuestionSid: string | null = null;
+let questionSessionGetter: () => string | null = () => null;
+
+export function startQuestionWatcher(getSessionId: () => string | null): void {
+  questionSessionGetter = getSessionId;
+  if (questionTimer) return;
+  questionTimer = setInterval(() => {
+    const sid = questionSessionGetter();
+    if (!sid || !getSessionStatus().alive) {
+      // Session gone/dead while a question was showing — tell the browser to
+      // dismiss it (otherwise the bar sticks and would answer a dead/other
+      // session). Broadcast to the session it was shown for, then reset.
+      if (lastQuestionKey && lastQuestionSid) {
+        broadcast(lastQuestionSid, 'question_cleared', {});
+      }
+      lastQuestionKey = '';
+      lastQuestionSid = null;
+      return;
+    }
+    // Re-show if the active session changed, even if the question key matches.
+    if (sid !== lastQuestionSid) lastQuestionKey = '';
+    let q: ReturnType<typeof detectQuestionPrompt> = null;
+    try { q = detectQuestionPrompt(); } catch { q = null; }
+    const key = q ? `${q.question}||${q.options.map(o => `${o.index}.${o.label}`).join('|')}` : '';
+    if (key === lastQuestionKey && sid === lastQuestionSid) return;
+    lastQuestionKey = key;
+    lastQuestionSid = sid;
+    if (q) broadcast(sid, 'question_prompt', { question: q.question, options: q.options });
+    else broadcast(sid, 'question_cleared', {});
+  }, QUESTION_POLL_INTERVAL);
+  questionTimer.unref?.();
 }
 
 /**

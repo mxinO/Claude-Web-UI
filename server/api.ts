@@ -17,7 +17,7 @@ import {
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
 import { exec, execSync, ChildProcess } from 'child_process';
-import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, respondToPermissionPrompt, isPermissionPromptVisible, cyclePermissionMode, readPermissionMode, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
+import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, respondToPermissionPrompt, isPermissionPromptVisible, cyclePermissionMode, readPermissionMode, respondToQuestion, detectQuestionPrompt, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { autoRestartClaude } from './restart.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
@@ -300,6 +300,31 @@ export function registerApiRoutes(app: Express): void {
     // Give the TUI footer a moment to repaint, then read the settled mode.
     await new Promise(r => setTimeout(r, 250));
     res.json({ ok: true, permissionMode: readPermissionMode() ?? 'default' });
+  });
+
+  // GET /api/question — current AskUserQuestion menu, if one is showing
+  router.get('/question', (_req, res) => {
+    if (!getSessionStatus().alive) { res.json({ question: null }); return; }
+    res.json(detectQuestionPrompt() ?? { question: null });
+  });
+
+  // POST /api/answer-question — select option `index` on the AskUserQuestion menu
+  router.post('/answer-question', (req, res) => {
+    const { index } = req.body as { index?: number };
+    if (typeof index !== 'number') {
+      res.status(400).json({ error: 'index (number) is required' });
+      return;
+    }
+    if (!getSessionStatus().alive) {
+      res.status(503).json({ error: 'Claude is not running' });
+      return;
+    }
+    const answered = respondToQuestion(index);
+    if (!answered) {
+      res.status(409).json({ error: 'No question menu is open (or invalid option)' });
+      return;
+    }
+    res.json({ ok: true, index });
   });
 
   // POST /api/send-input — send text to Claude via tmux (or queue if busy)

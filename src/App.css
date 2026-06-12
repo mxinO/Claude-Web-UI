@@ -466,6 +466,66 @@ body {
 
 /* ── Input bar ─────────────────────────────────────────────────── */
 
+.question-prompt {
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.question-prompt-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.question-prompt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.question-prompt-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.question-prompt-option:hover:not(:disabled) {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.question-prompt-option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.question-prompt-num {
+  font-size: 10px;
+  opacity: 0.6;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.question-prompt-error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--yellow, #c93);
+}
+
 .input-container {
   display: flex;
   flex-wrap: wrap;

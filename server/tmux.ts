@@ -101,6 +101,98 @@ export function isPermissionPromptVisible(): boolean {
   return capturePermissionPrompt() !== null;
 }
 
+export interface QuestionOption { index: number; label: string; }
+export interface QuestionPrompt { question: string; options: QuestionOption[]; }
+
+/** Detect Claude's AskUserQuestion menu in the pane and parse it. It renders:
+ *      ☐ Color
+ *      Which color do you prefer?
+ *      ❯ 1. Red
+ *           A warm, bold color.
+ *        2. Green
+ *        ...
+ *        5. Chat about this
+ *      Enter to select · ↑/↓ to navigate · Esc to cancel
+ *  Distinguished from the permission prompt by the "Enter to select" /
+ *  "navigate" footer (permission uses "Do you want to" + "Tab to amend").
+ *  Returns the question + numbered options, or null if no such menu. */
+const OPTION_RE = /^\s*❯?\s*(\d+)\.\s+(.*\S)\s*$/;
+
+export function detectQuestionPrompt(): QuestionPrompt | null {
+  let pane: string;
+  try {
+    pane = execSync(
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -40`,
+      tmuxExecOpts(3000),
+    );
+  } catch {
+    return null;
+  }
+  return parseQuestionPane(pane);
+}
+
+/** Pure parser for the AskUserQuestion menu (separated from capture so it's
+ *  unit-testable). Exported for tests. */
+export function parseQuestionPane(pane: string): QuestionPrompt | null {
+  if (!/Enter to select/i.test(pane) || !/to navigate/i.test(pane)) return null;
+
+  const lines = pane.split('\n');
+  // Anchor on the LAST "Enter to select" footer — the active menu sits just
+  // above it. Scanning upward (rather than collecting every numbered line in
+  // scrollback) avoids merging a previously-answered menu's options into this
+  // one. Stop once we reach option "1." (menus always start at 1); anything
+  // above that belongs to an earlier menu.
+  let footerIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/Enter to select/i.test(lines[i])) { footerIdx = i; break; }
+  }
+  if (footerIdx === -1) return null;
+
+  const collected: QuestionOption[] = [];
+  let topOptionIdx = -1;
+  for (let i = footerIdx - 1; i >= 0 && topOptionIdx === -1; i--) {
+    const m = lines[i].match(OPTION_RE);
+    if (m) {
+      const index = parseInt(m[1], 10);
+      collected.unshift({ index, label: m[2].trim() });
+      if (index === 1) topOptionIdx = i; // top of the current menu
+    }
+    // non-option lines (descriptions, blanks, separators) are skipped
+  }
+  if (collected.length === 0 || topOptionIdx === -1) return null;
+
+  // Question = nearest meaningful line above option 1 that isn't a separator,
+  // a "☐ Header" chip, or another option line (which would be a prior menu).
+  let question = '';
+  for (let i = topOptionIdx - 1; i >= 0; i--) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    if (/^[─━]{3,}$/.test(t)) continue;
+    if (/^[☐☑▢◻]/.test(t)) continue;
+    if (OPTION_RE.test(lines[i])) break; // hit the previous menu — no question here
+    question = t;
+    break;
+  }
+  return { question, options: collected };
+}
+
+/** Answer the AskUserQuestion menu by selecting option `index` (sends the
+ *  literal digit, which selects + confirms). Validates that `index` is an
+ *  option on the CURRENTLY-visible menu, so a stale click can't land on a
+ *  different question. Single-digit options only (realistic menus have ≤9). */
+export function respondToQuestion(index: number): boolean {
+  if (!Number.isInteger(index) || index < 1 || index > 9) return false;
+  const prompt = detectQuestionPrompt();
+  if (!prompt || !prompt.options.some(o => o.index === index)) return false;
+  try {
+    execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} -l ${index}`, execOpts);
+    return true;
+  } catch (err) {
+    console.error('[respondToQuestion] send-keys failed:', err);
+    return false;
+  }
+}
+
 /** Answer Claude's native permission prompt.
  *  allow → select option 1 ("Yes"); deny → Escape ("cancel").
  *  Returns true if a prompt was visible and a key was sent. Only acts when a

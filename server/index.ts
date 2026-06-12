@@ -9,10 +9,10 @@ import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession, setSkipPermissions, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
-import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
+import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart, getManagedSessionId } from './hooks.js';
 import { addAllowedRoot } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
-import { setOnClaudeDead } from './streaming.js';
+import { setOnClaudeDead, startQuestionWatcher } from './streaming.js';
 import { autoRestartClaude } from './restart.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -171,6 +171,10 @@ server.listen(PORT, HOST, () => {
     setManagedSessionId('mock-session'); // only accept mock events from the web UI
     return;
   }
+
+  // Watch for AskUserQuestion menus (which appear during tool execution, when
+  // the streaming poller is paused) and push them to the browser.
+  startQuestionWatcher(() => getManagedSessionId());
 
   // Block all hook events until the managed Claude sends its SessionStart
   setWaitingForSessionStart(true);

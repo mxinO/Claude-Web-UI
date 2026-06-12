@@ -76,6 +76,11 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
         } else if (data.type === 'claude_restarting') {
           // Server is resuming Claude in the same session's cwd after a death.
           window.dispatchEvent(new CustomEvent('claude-restarting', { detail: data }));
+        } else if (data.type === 'question_prompt') {
+          // Claude is asking a multiple-choice question (AskUserQuestion).
+          window.dispatchEvent(new CustomEvent('question-prompt', { detail: data }));
+        } else if (data.type === 'question_cleared') {
+          window.dispatchEvent(new CustomEvent('question-cleared'));
         }
       } catch {
         // ignore
