@@ -17,7 +17,7 @@ import {
 } from './db.js';
 import type { DbPermissionRequest } from './types.js';
 import { exec, execSync, ChildProcess } from 'child_process';
-import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, respondToPermissionPrompt, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
+import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, respondToPermissionPrompt, isPermissionPromptVisible, cyclePermissionMode, readPermissionMode, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { autoRestartClaude } from './restart.js';
 import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
@@ -281,6 +281,25 @@ export function registerApiRoutes(app: Express): void {
     }
 
     res.json({ ok: true, decision, drovePrompt: drove });
+  });
+
+  // POST /api/cycle-permission-mode — cycle Claude's permission mode (Shift+Tab)
+  router.post('/cycle-permission-mode', async (req, res) => {
+    if (!getSessionStatus().alive) {
+      res.status(503).json({ error: 'Claude is not running' });
+      return;
+    }
+    if (isPermissionPromptVisible()) {
+      res.status(409).json({ error: 'Cannot cycle mode while a permission prompt is open' });
+      return;
+    }
+    if (!cyclePermissionMode()) {
+      res.status(500).json({ error: 'Failed to cycle permission mode' });
+      return;
+    }
+    // Give the TUI footer a moment to repaint, then read the settled mode.
+    await new Promise(r => setTimeout(r, 250));
+    res.json({ ok: true, permissionMode: readPermissionMode() ?? 'default' });
   });
 
   // POST /api/send-input — send text to Claude via tmux (or queue if busy)
@@ -708,8 +727,18 @@ export function registerApiRoutes(app: Express): void {
         if (sess?.cwd) cwd = sess.cwd;
       }
 
-      // 3. Tmux fallback for anything still missing
-      if (!model || !cwd || !effort || !permissionMode) {
+      // Permission mode: the LIVE tmux footer is authoritative — the user can
+      // cycle it at runtime, so the file/settings value goes stale. Read it
+      // directly when the session is alive, but only override on a successful
+      // read (readPermissionMode returns null on a transient capture failure;
+      // keep the file value rather than downgrading the badge to 'default').
+      if (getSessionStatus().alive) {
+        const live = readPermissionMode();
+        if (live) permissionMode = live;
+      }
+
+      // Tmux fallback for anything still missing (model/cwd/effort)
+      if (!model || !cwd || !effort) {
         try {
           const headerCapture = execSync(
             `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -500 -E 15`,
@@ -726,17 +755,6 @@ export function registerApiRoutes(app: Express): void {
           if (!effort) {
             const m = headerCapture.match(/with\s+(low|medium|high|max)\s+effort/i);
             if (m) effort = m[1].toLowerCase();
-          }
-          if (!permissionMode) {
-            const statusCapture = execSync(
-              `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
-              tmuxExecOpts(3000)
-            );
-            if (statusCapture.includes('plan mode')) permissionMode = 'plan';
-            else if (statusCapture.includes('bypass permissions')) permissionMode = 'bypass';
-            else if (statusCapture.includes('auto-accept')) permissionMode = 'auto';
-            else if (statusCapture.includes('accept edits')) permissionMode = 'acceptEdits';
-            else if (statusCapture.includes('default')) permissionMode = 'default';
           }
         } catch { /* tmux not available */ }
       }

@@ -1247,11 +1247,28 @@ body {
 
 .session-picker-item {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 3px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 12px;
   border-bottom: 1px solid var(--border);
+}
+
+.session-picker-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.session-picker-cwd {
+  color: var(--text-secondary);
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
 }
 
 .session-picker-item:hover {
@@ -1263,6 +1280,8 @@ body {
 }
 
 .session-picker-new {
+  flex-direction: row;
+  gap: 12px;
   color: var(--accent);
   font-weight: 500;
   font-size: 13px;
@@ -1395,6 +1414,15 @@ body {
   border: 1px solid;
   border-radius: 3px;
   font-weight: 600;
+}
+
+.mode-badge--clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.mode-badge--clickable:hover {
+  filter: brightness(1.2);
 }
 
 .effort-badge {

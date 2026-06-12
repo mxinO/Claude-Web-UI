@@ -59,6 +59,12 @@ export default function SessionPicker({ visible, onClose, onSelect, onNewSession
     return model.slice(0, 12);
   }
 
+  function shortCwd(p?: string): string {
+    if (!p) return '';
+    // Show the trailing portion (the part that disambiguates projects).
+    return p.length > 44 ? '…' + p.slice(-43) : p;
+  }
+
   return (
     <>
       {/* Backdrop to close on outside click */}
@@ -93,11 +99,18 @@ export default function SessionPicker({ visible, onClose, onSelect, onNewSession
               onClose();
             }}
           >
-            <span className="session-picker-date">{formatDate(s.date)}</span>
-            <span className="session-picker-model">{shortModel(s.model)}</span>
-            <span className="session-picker-preview">
-              {s.name || s.preview || s.id.slice(0, 16)}
-            </span>
+            <div className="session-picker-row">
+              <span className="session-picker-date">{formatDate(s.date)}</span>
+              <span className="session-picker-model">{shortModel(s.model)}</span>
+              <span className="session-picker-preview">
+                {s.name || s.preview || s.id.slice(0, 16)}
+              </span>
+            </div>
+            {s.cwd && (
+              <div className="session-picker-cwd" title={s.cwd}>
+                {shortCwd(s.cwd)}
+              </div>
+            )}
           </div>
         ))}
       </div>

@@ -121,6 +121,47 @@ export function respondToPermissionPrompt(allow: boolean): boolean {
   }
 }
 
+/** Read Claude's current permission mode from the TUI footer.
+ *  Returns 'plan' | 'bypass' | 'acceptEdits' | 'auto' | 'default', or null if
+ *  the pane couldn't be captured — so callers can distinguish a transient
+ *  capture failure from a genuine 'default' and avoid downgrading the badge.
+ *  Matching is substring-based (no required " on" suffix) to stay robust
+ *  across Claude Code footer wording, matching hooks.ts getCurrentPermissionMode.
+ *  `auto` is checked before `acceptEdits` so an "auto-accept edits" footer
+ *  isn't misclassified. */
+export function readPermissionMode(): string | null {
+  let pane: string;
+  try {
+    pane = execSync(
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -3`,
+      tmuxExecOpts(3000),
+    );
+  } catch {
+    return null;
+  }
+  if (/plan mode/i.test(pane)) return 'plan';
+  if (/bypass permissions/i.test(pane)) return 'bypass';
+  if (/auto[- ]?accept|auto mode/i.test(pane)) return 'auto';
+  if (/accept edits/i.test(pane)) return 'acceptEdits';
+  return 'default';
+}
+
+/** Cycle Claude's permission mode by sending Shift+Tab (the TUI's own binding).
+ *  Refuses when a native permission prompt is showing, because there Shift+Tab
+ *  means "Yes, allow all" — we'd grant a broad permission by accident.
+ *  Returns true if the keystroke was sent. The caller should read the settled
+ *  mode after a short delay (the footer repaints asynchronously). */
+export function cyclePermissionMode(): boolean {
+  if (isPermissionPromptVisible()) return false;
+  try {
+    execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} S-Tab`, execOpts);
+    return true;
+  } catch (err) {
+    console.error('[cyclePermissionMode] send-keys failed:', err);
+    return false;
+  }
+}
+
 export function getSessionStatus(): { alive: boolean; session: string } {
   try {
     execSync(`${TMUX} has-session -t ${TMUX_SESSION} 2>/dev/null`, execOpts);

@@ -69,10 +69,28 @@ export default function Header({ session, connected }: HeaderProps) {
   }
 
   const [cwdPickerVisible, setCwdPickerVisible] = useState(false);
+  const [cyclingMode, setCyclingMode] = useState(false);
 
   function handleNewSession() {
     setPickerVisible(false);
     setCwdPickerVisible(true);
+  }
+
+  // Cycle Claude's permission mode (default → accept-edits → plan → bypass → …)
+  // by asking the server to send Shift+Tab into the tmux pane.
+  async function cyclePermissionMode() {
+    if (cyclingMode) return;
+    setCyclingMode(true);
+    try {
+      const res = await fetch('/api/cycle-permission-mode', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.permissionMode) {
+        setStatus(s => ({ ...s, permissionMode: data.permissionMode }));
+      } else if (data.error) {
+        alert(data.error);
+      }
+    } catch { /* ignore */ }
+    setCyclingMode(false);
   }
 
   async function startNewSessionWithCwd(cwd: string) {
@@ -144,7 +162,12 @@ export default function Header({ session, connected }: HeaderProps) {
       )}
       {displayModel && <span className="model-badge">{displayModel}</span>}
       {modeLabel && (
-        <span className="mode-badge" style={{ color: modeColor, borderColor: modeColor }}>
+        <span
+          className="mode-badge mode-badge--clickable"
+          style={{ color: modeColor, borderColor: modeColor, opacity: cyclingMode ? 0.5 : 1 }}
+          title="Click to cycle permission mode (Shift+Tab)"
+          onClick={cyclePermissionMode}
+        >
           {modeLabel}
         </span>
       )}
