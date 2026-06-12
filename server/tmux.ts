@@ -36,6 +36,15 @@ export function tmuxExecOpts(timeout = 3000): ExecSyncOptionsWithStringEncoding 
 let startupCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sendSeq = 0;
 
+// When true, every Claude session this server launches gets
+// `--dangerously-skip-permissions`. Set once at startup from the --bypass CLI
+// flag. Useful where an admin disables bypass mode in system config but the
+// CLI arg is still honored. Applies to the initial session, auto-restart, and
+// new/switch-session launches so the behavior is consistent.
+let skipPermissions = false;
+export function setSkipPermissions(v: boolean): void { skipPermissions = v; }
+export function getSkipPermissions(): boolean { return skipPermissions; }
+
 export function sendInput(text: string): void {
   // Claude Code's TUI debounces Enter for ~150-200ms after a bracketed paste
   // ends (anti-accidental-submit for multi-line pastes). We deliver the paste
@@ -177,8 +186,11 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
     throw new Error('Invalid characters in args');
   }
   const dir = cwd || process.cwd();
+  // --dangerously-skip-permissions bypasses all permission prompts via the CLI
+  // arg (honored even where an admin disables bypass mode in settings).
+  const bypassFlag = skipPermissions ? ' --dangerously-skip-permissions' : '';
   // cd first so Claude Code sees the correct project directory for --resume
-  const cmd = `${TMUX} new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && claude ${args}"`;
+  const cmd = `${TMUX} new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && claude ${args}${bypassFlag}"`;
   execSync(cmd, execOpts);
 
   // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.

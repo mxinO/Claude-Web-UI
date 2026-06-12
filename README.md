@@ -58,8 +58,11 @@ npm install -g https://github.com/mxinO/Claude-Web-UI/archive/refs/heads/main.ta
 claude-web-ui                                       # default: localhost:3001, cwd $PWD
 claude-web-ui /path/to/project                      # specific working directory
 claude-web-ui --host 0.0.0.0 --port 9999            # custom host/port
+claude-web-ui --bypass                              # start Claude with --dangerously-skip-permissions
 claude-web-ui --update                              # reinstall the latest main branch
 ```
+
+`--bypass` launches Claude with `--dangerously-skip-permissions`, skipping all permission prompts via the CLI arg — useful where an admin disables bypass mode in system settings but the CLI flag is still honored. Only use it in trusted/isolated environments.
 
 Install **per-user**, not system-wide — the server writes to its install dir at runtime. Use a user-owned npm prefix (e.g. `npm config set prefix ~/.npm-global`).
 

@@ -7,6 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 HOST="${HOST:-localhost}"
 PORT="${PORT:-3001}"
 CWD=""
+# Reset flags to a known state so an inherited env var can't silently enable
+# them — especially BYPASS, which disables ALL permission prompts. These are
+# opt-in via CLI flags only.
+MOCK=""
+NO_AUTH=""
+BYPASS=""
 TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
 TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude-webui}"
 # Reject anything outside a safe charset — these get interpolated into shell commands.
@@ -23,7 +29,8 @@ while [[ $# -gt 0 ]]; do
     --port) [[ $# -ge 2 ]] || { echo "Error: --port requires a value"; exit 1; }; PORT="$2"; shift 2 ;;
     --mock) MOCK=1; shift ;;
     --no-auth) NO_AUTH=1; shift ;;
-    -*) echo "Unknown option: $1"; echo "Usage: ./start.sh [--host HOST] [--port PORT] [--no-auth] [working-directory]"; exit 1 ;;
+    --bypass) BYPASS=1; shift ;;
+    -*) echo "Unknown option: $1"; echo "Usage: ./start.sh [--host HOST] [--port PORT] [--no-auth] [--bypass] [working-directory]"; exit 1 ;;
     *) CWD="$1"; shift ;;
   esac
 done
@@ -166,6 +173,7 @@ echo ""
 EXTRA_ARGS=""
 [ "${MOCK:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --mock"
 [ "${NO_AUTH:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --no-auth"
+[ "${BYPASS:-}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --bypass"
 # Run in a new session so SERVER_PID == PGID. This lets us reap the full
 # tsx/node tree with `kill -- -$PGID`, regardless of what npx does.
 setsid npx tsx server/index.ts --host "$HOST" --port "$PORT" $EXTRA_ARGS "$CWD" &

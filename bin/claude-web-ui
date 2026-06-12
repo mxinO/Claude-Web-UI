@@ -35,8 +35,11 @@ usage() {
 claude-web-ui — Claude Code Web UI launcher
 
 Usage:
-  claude-web-ui [--host HOST] [--port PORT] [--no-auth] [WORKING_DIR]
+  claude-web-ui [--host HOST] [--port PORT] [--no-auth] [--bypass] [WORKING_DIR]
       Start the web UI. Defaults: --host localhost, --port 3001, cwd \$PWD.
+      --bypass starts Claude with --dangerously-skip-permissions (no
+      permission prompts) — works even where bypass mode is disabled in
+      system settings. Use only in trusted/isolated environments.
 
   claude-web-ui --update
       Reinstall the latest main branch via npm install -g <main.tar.gz>.

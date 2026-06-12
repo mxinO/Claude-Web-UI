@@ -8,7 +8,7 @@ import { initDb, createSession, switchDb } from './db.js';
 import { initWebSocket, broadcastEvent, broadcastPermission } from './websocket.js';
 import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
-import { getSessionStatus, startClaudeSession, stopClaudeSession, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
+import { getSessionStatus, startClaudeSession, stopClaudeSession, setSkipPermissions, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart } from './hooks.js';
 import { addAllowedRoot } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
@@ -22,17 +22,19 @@ function parseArgs(argv: string[]) {
   let port = parseInt(process.env.PORT || '3001');
   let mock = false;
   let noAuth = false;
+  let bypass = false;
   let cwd = process.cwd();
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--host' && argv[i + 1] && !argv[i + 1].startsWith('-')) { host = argv[++i]; }
     else if (argv[i] === '--port' && argv[i + 1] && !argv[i + 1].startsWith('-')) { port = parseInt(argv[++i]); }
     else if (argv[i] === '--mock') { mock = true; }
     else if (argv[i] === '--no-auth') { noAuth = true; }
+    else if (argv[i] === '--bypass') { bypass = true; }
     else if (!argv[i].startsWith('-')) { cwd = argv[i]; }
   }
-  return { host, port, mock, noAuth, cwd };
+  return { host, port, mock, noAuth, bypass, cwd };
 }
-const { host: HOST, port: PORT, mock: MOCK, noAuth: NO_AUTH, cwd: rawCwd } = parseArgs(process.argv);
+const { host: HOST, port: PORT, mock: MOCK, noAuth: NO_AUTH, bypass: BYPASS, cwd: rawCwd } = parseArgs(process.argv);
 // Resolve CLAUDE_CWD to absolute now, in case the caller passed a relative
 // path. tmux interprets relative paths from its own cwd, not ours.
 const CLAUDE_CWD = path.resolve(rawCwd);
@@ -40,6 +42,11 @@ if (!fs.existsSync(CLAUDE_CWD)) {
   console.error(`Working directory does not exist: ${CLAUDE_CWD} (from arg "${rawCwd}")`);
   process.exit(1);
 }
+
+// Apply --bypass before any session is launched, so the initial session,
+// auto-restart, and new/switch-session all skip permission prompts.
+setSkipPermissions(BYPASS);
+if (BYPASS) console.warn('⚠ --bypass: launching Claude with --dangerously-skip-permissions (no permission prompts)');
 
 // --- Auth ---
 initAuth(!NO_AUTH);
