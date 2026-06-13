@@ -743,6 +743,18 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
       res.status(400).json({ error: 'session_id is required' });
       return;
     }
+    // AskUserQuestion is an interactive picker, not a yes/no permission — never
+    // create a permission card for it (the question watcher surfaces it
+    // instead). This guard only suppresses the CARD; what prevents Claude from
+    // dismissing the native picker is the hook script's own early-exit (it no
+    // longer POSTs for AskUserQuestion). An OLD hook script that still POSTs
+    // would get no `id` here and fall back to allow — which would dismiss the
+    // picker — so updating the hook script (relaunch Claude) is required for
+    // the full fix.
+    if (tool_name === 'AskUserQuestion') {
+      res.json({ ok: true, ignored: true });
+      return;
+    }
     ensureSession(session_id, cwd);
 
     // Check if we're in bypass/auto mode — auto-approve instead of waiting.

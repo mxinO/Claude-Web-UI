@@ -526,6 +526,13 @@ body {
   color: var(--yellow, #c93);
 }
 
+.question-prompt-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
 .input-container {
   display: flex;
   flex-wrap: wrap;
