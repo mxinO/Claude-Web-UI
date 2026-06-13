@@ -131,13 +131,27 @@ export default function App() {
   }, []);
 
   const onEvent = useCallback((event: TimelineEvent) => {
-    if (event.event_type === 'assistant_message' || event.event_type === 'stop') {
+    // End of turn = the FINAL assistant message (status 'end_turn') or a stop
+    // event. Intermediate assistant_message events now arrive mid-turn (text
+    // emitted before/between tool calls, captured from the JSONL transcript);
+    // clearing the working state on those made the UI look idle while Claude
+    // was still working. Only the final one ends the turn.
+    const isTurnEnd =
+      event.event_type === 'stop' ||
+      (event.event_type === 'assistant_message' && event.status === 'end_turn');
+    if (isTurnEnd) {
       streamingTextRef.current = null;
       setStreamingText(null);
       setStreamingExpanded(false);
       cancelledRef.current = false;
       setCancelledText(null);
       setWaitingForReply(false);
+    } else if (event.event_type === 'assistant_message') {
+      // Intermediate text block — Claude is still working. Clear the live
+      // preview for this block (it's now a real message) but keep the
+      // thinking/stop indicators alive.
+      streamingTextRef.current = null;
+      setStreamingText(null);
     }
     if (event.event_type === 'user_message') {
       // New turn — reset cancelled state
@@ -147,7 +161,17 @@ export default function App() {
     addEvent(event);
   }, [addEvent]);
 
-  const { connected } = useWebSocket({ onEvent, onStreaming, onQueueChange, session, setSession });
+  // Turn-end backstop: the Stop hook stops the (non-quiet) streaming poll,
+  // which broadcasts streaming_done. Clear the working state in case no
+  // 'end_turn' assistant_message arrived (e.g. a turn that ended without
+  // final text).
+  const onStreamingDone = useCallback(() => {
+    streamingTextRef.current = null;
+    setStreamingText(null);
+    setWaitingForReply(false);
+  }, []);
+
+  const { connected } = useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueChange, session, setSession });
   const { needsAuth } = useAuthRecovery();
 
   // A pending question bar belongs to one session; drop it if the session changes.

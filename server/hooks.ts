@@ -14,6 +14,7 @@ import {
 } from './db.js';
 import type { DbEvent } from './types.js';
 import { startStreaming, stopStreaming } from './streaming.js';
+import { broadcast } from './websocket.js';
 import { addAllowedRoot } from './api.js';
 import { setClaudeBusy, setSessionIdGetter } from './queue.js';
 import { TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
@@ -537,6 +538,13 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     // Claude finished this turn — mark idle (drains queue if messages pending)
     setClaudeBusy(false);
+    // Definitive turn-end signal for the UI. stopStreaming() above only emits
+    // streaming_done if the poll was active, and the final assistant_message
+    // is only tagged 'end_turn' when the JSONL stop_reason is present (racy).
+    // Broadcasting here unconditionally guarantees the client clears its
+    // "working" indicators when the turn actually ends. Client handler is
+    // idempotent.
+    broadcast(session_id, 'streaming_done', {});
     res.json({ ok: true, event_id: fallbackEventId });
   });
 
