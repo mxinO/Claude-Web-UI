@@ -71,6 +71,20 @@ export default function Header({ session, connected }: HeaderProps) {
   const [cwdPickerVisible, setCwdPickerVisible] = useState(false);
   const [cyclingMode, setCyclingMode] = useState(false);
 
+  // Restart Claude on the SAME session (kill + `--resume <id>`), e.g. to pick
+  // up a just-installed skill / changed config. Reuses switch-session.
+  async function handleRestart() {
+    if (switching || !session) return;
+    // Require a known cwd — switch-session falls back to the server's process
+    // cwd on an empty value, which would resume Claude in the wrong directory.
+    if (!displayCwd) {
+      alert('Working directory not known yet — wait a moment and try again.');
+      return;
+    }
+    if (!window.confirm('Restart Claude on this session? It reloads skills/config and resumes the conversation.')) return;
+    await handleSessionSelect(session.id, displayCwd);
+  }
+
   function handleNewSession() {
     setPickerVisible(false);
     setCwdPickerVisible(true);
@@ -175,6 +189,17 @@ export default function Header({ session, connected }: HeaderProps) {
         <span className="effort-badge">
           {status.effort}
         </span>
+      )}
+      {session && (
+        <button
+          className="theme-toggle"
+          onClick={handleRestart}
+          disabled={switching || !displayCwd}
+          title="Restart Claude on this session (reload skills/config, resume conversation)"
+          style={{ opacity: switching || !displayCwd ? 0.5 : 1 }}
+        >
+          {'\u21BB'}
+        </button>
       )}
       <button
         className="theme-toggle"
