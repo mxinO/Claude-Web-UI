@@ -3,6 +3,16 @@ set -euo pipefail
 SERVER="http://localhost:${CLAUDE_WEB_UI_PORT:-3001}"
 INPUT=$(cat)
 
+# AskUserQuestion is an interactive picker, not a yes/no permission. If this
+# hook returns ANY decision for it, Claude treats the question as handled by
+# the hook and dismisses the picker without showing it ("you dismissed the
+# picker"). Emit nothing and exit so Claude renders its native picker — the
+# web UI's question watcher detects it and surfaces the options.
+TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || echo '')
+if [ "$TOOL" = "AskUserQuestion" ]; then
+  exit 0
+fi
+
 RESPONSE=$(echo "$INPUT" | curl -sf -X POST "$SERVER/hooks/permission-request" \
   -H 'Content-Type: application/json' -d @- 2>/dev/null || echo '{}')
 
