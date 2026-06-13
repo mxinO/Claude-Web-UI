@@ -841,6 +841,52 @@ body {
   text-decoration: underline;
 }
 
+.file-link {
+  color: var(--text-accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.file-link:hover {
+  text-decoration: underline solid;
+}
+
+/* File viewer modal buttons */
+.fv-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.fv-btn:hover {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.fv-btn--primary {
+  background: var(--text-accent);
+  color: var(--bg-primary);
+  border-color: var(--text-accent);
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.fv-loading, .fv-error {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 16px;
+}
+.fv-error { color: var(--yellow, #c93); }
+
 .markdown-content blockquote {
   border-left: 3px solid var(--border);
   margin: 0;

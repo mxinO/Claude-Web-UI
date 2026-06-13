@@ -616,11 +616,13 @@ export function registerApiRoutes(app: Express): void {
       res.status(400).json({ error: 'path required' });
       return;
     }
-    if (!isPathSafe(filePath)) {
+    // Resolve relative paths (e.g. "src/App.tsx" from a chat message) against
+    // Claude's cwd, not the server process cwd.
+    const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(getClaudeCwd(), filePath);
+    if (!isPathSafe(resolved)) {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
-    const resolved = path.resolve(filePath);
     let stat: fs.Stats;
     try {
       stat = fs.statSync(resolved);
@@ -652,9 +654,9 @@ export function registerApiRoutes(app: Express): void {
   router.get('/download', (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) { res.status(400).json({ error: 'path required' }); return; }
-    if (!isPathSafe(filePath)) { res.status(403).json({ error: 'Access denied' }); return; }
+    const resolved = path.isAbsolute(filePath) ? filePath : path.resolve(getClaudeCwd(), filePath);
+    if (!isPathSafe(resolved)) { res.status(403).json({ error: 'Access denied' }); return; }
     try {
-      const resolved = path.resolve(filePath);
       const stat = fs.statSync(resolved);
       if (!stat.isFile()) { res.status(400).json({ error: 'Not a file' }); return; }
       res.download(resolved, path.basename(resolved));

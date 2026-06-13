@@ -10,6 +10,7 @@ import StreamingCard from './components/StreamingCard';
 import BtwToast from './components/BtwToast';
 import QuestionPrompt from './components/QuestionPrompt';
 import type { QuestionData } from './components/QuestionPrompt';
+import FileViewer from './components/FileViewer';
 import AuthOverlay from './components/AuthOverlay';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { QueuedMessage } from './hooks/useWebSocket';
@@ -98,6 +99,7 @@ export default function App() {
   const [modalEvent, setModalEvent] = useState<TimelineEvent | null>(null);
   const [btwData, setBtwData] = useState<{ question: string; response: string } | null>(null);
   const [questionData, setQuestionData] = useState<QuestionData | null>(null);
+  const [viewerPath, setViewerPath] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const streamingTextRef = useRef<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
@@ -338,6 +340,13 @@ export default function App() {
     // answer a stale session after reconnect/switch.
     const dropQuestion = () => setQuestionData(null);
     window.addEventListener('claude-dead', dropQuestion);
+    // Open the shared file viewer when a file path link is clicked anywhere
+    // (chat messages, file explorer).
+    const viewFileHandler = (e: Event) => {
+      const p = (e as CustomEvent).detail?.path;
+      if (typeof p === 'string' && p) setViewerPath(p);
+    };
+    window.addEventListener('view-file', viewFileHandler);
     window.addEventListener('claude-message-sent', handler);
     window.addEventListener('bash-output', scrollToBottom);
     window.addEventListener('claude-dead', deadHandler);
@@ -352,6 +361,7 @@ export default function App() {
       window.removeEventListener('question-prompt', questionHandler);
       window.removeEventListener('question-cleared', questionClearedHandler);
       window.removeEventListener('claude-dead', dropQuestion);
+      window.removeEventListener('view-file', viewFileHandler);
     };
   }, []);
 
@@ -540,6 +550,11 @@ export default function App() {
       {/* Detail modal for tool calls */}
       {modalEvent && (
         <DetailModal event={modalEvent} onClose={handleCloseDetail} />
+      )}
+
+      {/* Shared file viewer (file explorer + clicked file paths in messages) */}
+      {viewerPath && (
+        <FileViewer path={viewerPath} onClose={() => setViewerPath(null)} />
       )}
 
       {/* Streaming expanded popup */}
