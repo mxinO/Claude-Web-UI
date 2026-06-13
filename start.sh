@@ -13,14 +13,6 @@ CWD=""
 MOCK=""
 NO_AUTH=""
 BYPASS=""
-TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
-TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude-webui}"
-# Reject anything outside a safe charset — these get interpolated into shell commands.
-for v in TMUX_SESSION TMUX_SOCKET; do
-  [[ "${!v}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Error: $v must match [A-Za-z0-9_-]+"; exit 1; }
-done
-TMUX="tmux -L $TMUX_SOCKET"
-PID_FILE="$SCRIPT_DIR/data/.server.pid"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -42,6 +34,23 @@ if [ ! -d "$CWD" ]; then
   echo "Error: working directory does not exist: $CWD"; exit 1
 fi
 CWD="$(cd "$CWD" && pwd)"
+
+# Per-server tmux isolation: default the socket to include the port so two
+# instances on one host don't share a session and kill each other's Claude.
+# Explicit CLAUDE_TMUX_SOCKET / CLAUDE_TMUX_SESSION still override. Export them
+# so the Node server (which reads these env vars) uses the same socket/session.
+export CLAUDE_TMUX_SESSION="${CLAUDE_TMUX_SESSION:-claude}"
+export CLAUDE_TMUX_SOCKET="${CLAUDE_TMUX_SOCKET:-claude-webui-$PORT}"
+TMUX_SESSION="$CLAUDE_TMUX_SESSION"
+TMUX_SOCKET="$CLAUDE_TMUX_SOCKET"
+# Reject anything outside a safe charset — these get interpolated into shell commands.
+for v in TMUX_SESSION TMUX_SOCKET; do
+  [[ "${!v}" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Error: $v must match [A-Za-z0-9_-]+"; exit 1; }
+done
+TMUX="tmux -L $TMUX_SOCKET"
+# PID file is per-port too, so multiple instances from one install dir don't
+# clobber each other's recorded server PID.
+PID_FILE="$SCRIPT_DIR/data/.server.$PORT.pid"
 
 # If run via curl pipe, clone first
 if [ ! -f "$SCRIPT_DIR/package.json" ]; then
