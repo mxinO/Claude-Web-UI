@@ -19,8 +19,8 @@ import type { DbPermissionRequest } from './types.js';
 import { exec, execSync, ChildProcess } from 'child_process';
 import { sendInput, getSessionStatus, startClaudeSession, stopClaudeSession, respondToPermissionPrompt, isPermissionPromptVisible, cyclePermissionMode, readPermissionMode, respondToQuestion, detectQuestionPrompt, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { autoRestartClaude } from './restart.js';
-import { broadcastPermissionDecision, broadcastEvent } from './websocket.js';
-import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage } from './hooks.js';
+import { broadcastPermissionDecision, broadcastEvent, broadcast } from './websocket.js';
+import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage, isTurnActive, setTurnActive } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
 import { stopStreaming } from './streaming.js';
 
@@ -413,6 +413,20 @@ export function registerApiRoutes(app: Express): void {
       stopStreaming();
       // Send Escape to tmux to interrupt
       execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Escape`, tmuxExecOpts(3000));
+
+      // Escape-cancel aborts the turn without firing a Stop hook, so reset the
+      // server-authoritative turn flag and tell live tabs to converge. Do this
+      // *before* the settle/capture below: if it ran after, a turn started in
+      // that window (a fast resubmit or queue drain) would be clobbered, hiding
+      // a genuinely-running indicator. A new turn can't begin until this handler
+      // returns and the trailing setClaudeBusy(false) drains the queue, so an
+      // early reset here can't race a turn we ourselves are about to start.
+      setTurnActive(false);
+      {
+        const sid = getManagedSessionId();
+        if (sid) broadcast(sid, 'busy', { busy: false });
+      }
+
       // Timing-sensitive: 500ms gives Claude time to restore the prompt before we capture pane output.
       // Too short → we capture mid-restore; too long → unnecessary latency on cancel.
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -450,7 +464,8 @@ export function registerApiRoutes(app: Express): void {
         }
       }
 
-      // Interrupt means Claude is idle now — reset busy flag (drains queue if any)
+      // Interrupt means Claude is idle now — reset busy flag (drains queue if
+      // any). The server-authoritative turn flag was already reset above.
       setClaudeBusy(false);
 
       res.json({ ok: true, restoredText: restoredText || null });
@@ -578,7 +593,12 @@ export function registerApiRoutes(app: Express): void {
   // POST /api/session/stop — graceful shutdown
   router.post('/session/stop', (_req, res) => {
     try {
+      const sid = getManagedSessionId();
       stopClaudeSession();
+      setTurnActive(false); // killed process won't fire a Stop hook
+      // No claude-dead/reconnect backstop on a graceful stop, so push busy:false
+      // explicitly or an open tab keeps showing a running indicator.
+      if (sid) broadcast(sid, 'busy', { busy: false });
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: String(err) });
@@ -786,7 +806,7 @@ export function registerApiRoutes(app: Express): void {
         } catch { /* tmux not available */ }
       }
 
-      res.json({ model, cwd, effort, permissionMode, hostname: os.hostname() });
+      res.json({ model, cwd, effort, permissionMode, hostname: os.hostname(), busy: isTurnActive() });
     } catch {
       res.json({ model: null, cwd: null, effort: null, permissionMode: null });
     }
@@ -819,6 +839,7 @@ export function registerApiRoutes(app: Express): void {
 
       // Kill current Claude
       stopClaudeSession();
+      setTurnActive(false); // killed mid-turn won't fire a Stop hook
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Reset managed session so hooks attach to the new one
@@ -880,6 +901,7 @@ export function registerApiRoutes(app: Express): void {
       resetQueue();
 
       stopClaudeSession();
+      setTurnActive(false); // killed mid-turn won't fire a Stop hook
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       setManagedSessionId(null);

@@ -52,6 +52,19 @@ export function setManagedSessionId(id: string | null): void { managedSessionId 
 export function isWaitingForSessionStart(): boolean { return waitingForSessionStart; }
 export function setWaitingForSessionStart(val: boolean): void { waitingForSessionStart = val; }
 
+// Whether Claude is mid-turn (between UserPromptSubmit and Stop). This is the
+// authoritative "is Claude working" signal — broadcast to clients and exposed
+// via /api/current-status so the UI shows a running indicator even after a
+// page refresh (when the client's local "waiting" state is lost) and during
+// the gaps where streaming is paused (e.g. while an AskUserQuestion picker is
+// open).
+let turnActive = false;
+export function isTurnActive(): boolean { return turnActive; }
+/** Set the turn-active flag. Called from every turn-terminating path that
+ *  bypasses the Stop hook — interrupt, crash/auto-restart, session
+ *  switch/new/stop — so /api/current-status can't get stuck reporting busy. */
+export function setTurnActive(v: boolean): void { turnActive = v; }
+
 /** Ensure a session exists, creating one if needed. */
 function ensureSession(sessionId: string, cwd?: string, model?: string): void {
   if (!getSession(sessionId)) {
@@ -441,6 +454,7 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     endSession(session_id);
     processedAssistantUuids.delete(session_id);
     fallbackInsertedText.delete(session_id);
+    turnActive = false;
     res.json({ ok: true });
   });
 
@@ -491,6 +505,9 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
 
     // Start streaming — poll tmux for partial output
     startStreaming(session_id);
+    // Claude is now working — tell the UI (survives refresh; see isTurnActive).
+    turnActive = true;
+    broadcast(session_id, 'busy', { busy: true });
     res.json({ ok: true, event_id: eventId });
   });
 
@@ -544,6 +561,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     // Broadcasting here unconditionally guarantees the client clears its
     // "working" indicators when the turn actually ends. Client handler is
     // idempotent.
+    turnActive = false;
+    broadcast(session_id, 'busy', { busy: false });
     broadcast(session_id, 'streaming_done', {});
     res.json({ ok: true, event_id: fallbackEventId });
   });

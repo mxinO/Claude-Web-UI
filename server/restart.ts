@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { startClaudeSession, stopClaudeSession, getSessionStatus } from './tmux.js';
 import { getSession } from './db.js';
-import { getManagedSessionId, setManagedSessionId, setWaitingForSessionStart } from './hooks.js';
+import { getManagedSessionId, setManagedSessionId, setWaitingForSessionStart, setTurnActive, isTurnActive } from './hooks.js';
 import { resetQueue } from './queue.js';
 import { broadcast } from './websocket.js';
 
@@ -43,6 +43,15 @@ export type RestartOutcome = 'started' | 'cooldown' | 'no-session' | 'in-progres
  *  Caller-friendly: returns a status so HTTP handlers can phrase their
  *  response accurately (e.g. "auto-restart on cooldown" vs. "restarting"). */
 export async function autoRestartClaude(sidAtDeath: string | null): Promise<RestartOutcome> {
+  // A death mid-turn means no Stop hook will fire, so the server-authoritative
+  // turn flag would stay true and /api/current-status would report busy:true to
+  // any freshly-loaded tab forever. Clear it up front on every death path
+  // (cooldown, no-session, started, failed) and tell live tabs to converge.
+  if (isTurnActive()) {
+    setTurnActive(false);
+    const dsid = sidAtDeath || getManagedSessionId();
+    if (dsid) broadcast(dsid, 'busy', { busy: false });
+  }
   // Single-threaded JS: this check-then-set runs atomically before any await.
   if (restarting) return 'in-progress';
   const now = Date.now();

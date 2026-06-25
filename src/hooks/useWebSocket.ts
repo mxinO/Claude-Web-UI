@@ -81,6 +81,9 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
           window.dispatchEvent(new CustomEvent('question-prompt', { detail: data }));
         } else if (data.type === 'question_cleared') {
           window.dispatchEvent(new CustomEvent('question-cleared'));
+        } else if (data.type === 'busy') {
+          // Server-authoritative "Claude is working" signal (turn active).
+          window.dispatchEvent(new CustomEvent('claude-busy', { detail: { busy: !!data.busy } }));
         }
       } catch {
         // ignore

@@ -100,6 +100,9 @@ export default function App() {
   const [btwData, setBtwData] = useState<{ question: string; response: string } | null>(null);
   const [questionData, setQuestionData] = useState<QuestionData | null>(null);
   const [viewerPath, setViewerPath] = useState<string | null>(null);
+  // Server-authoritative "Claude is working" (turn active). Survives page
+  // refresh and the gaps where streaming is paused (tool runs, question picker).
+  const [serverBusy, setServerBusy] = useState(false);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const streamingTextRef = useRef<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
@@ -178,6 +181,15 @@ export default function App() {
 
   // A pending question bar belongs to one session; drop it if the session changes.
   useEffect(() => { setQuestionData(null); }, [session?.id]);
+
+  // Seed the busy indicator on load/refresh from the server, so a turn that
+  // was already in progress still shows a running indicator.
+  useEffect(() => {
+    fetch('/api/current-status')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && typeof d.busy === 'boolean') setServerBusy(d.busy); })
+      .catch(() => {});
+  }, []);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -338,8 +350,16 @@ export default function App() {
     const questionClearedHandler = () => setQuestionData(null);
     // Drop any pending question bar when the connection drops, so it can't
     // answer a stale session after reconnect/switch.
-    const dropQuestion = () => setQuestionData(null);
+    const dropQuestion = () => { setQuestionData(null); setServerBusy(false); };
     window.addEventListener('claude-dead', dropQuestion);
+    // Server-driven busy signal (turn start/end). Folds into the running
+    // indicator so it shows even after refresh / during paused-streaming gaps.
+    const busyHandler = (e: Event) => {
+      const busy = !!(e as CustomEvent).detail?.busy;
+      setServerBusy(busy);
+      if (busy) cancelledRef.current = false; // new turn started
+    };
+    window.addEventListener('claude-busy', busyHandler);
     // Open the shared file viewer when a file path link is clicked anywhere
     // (chat messages, file explorer).
     const viewFileHandler = (e: Event) => {
@@ -361,6 +381,7 @@ export default function App() {
       window.removeEventListener('question-prompt', questionHandler);
       window.removeEventListener('question-cleared', questionClearedHandler);
       window.removeEventListener('claude-dead', dropQuestion);
+      window.removeEventListener('claude-busy', busyHandler);
       window.removeEventListener('view-file', viewFileHandler);
     };
   }, []);
@@ -400,11 +421,14 @@ export default function App() {
     }));
   }, []);
 
-  // Thinking state: only when we actively sent a message and haven't got a reply yet
-  const isThinking = waitingForReply && !streamingText && !cancelledRef.current;
+  // Thinking state: Claude is working but no live text yet. Driven by the
+  // local "just sent" flag OR the server-authoritative turn-active signal
+  // (the latter survives refresh and covers paused-streaming gaps).
+  const isThinking = (waitingForReply || serverBusy) && !streamingText && !cancelledRef.current;
 
-  // Running state: thinking, streaming, or a tool is in progress (but not after cancel)
-  const isRunning = !cancelledRef.current && (isThinking || !!streamingText || events.some(e => e.event_type === 'tool_running'));
+  // Running state: thinking, streaming, a tool in progress, or server says the
+  // turn is active (but not after a local cancel).
+  const isRunning = !cancelledRef.current && (isThinking || !!streamingText || serverBusy || events.some(e => e.event_type === 'tool_running'));
 
   return (
     <div className="app">
