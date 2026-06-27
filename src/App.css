@@ -533,6 +533,59 @@ body {
   opacity: 0.8;
 }
 
+.goal-banner {
+  max-width: 832px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.goal-banner-icon {
+  color: var(--text-accent);
+}
+
+.goal-banner-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.goal-banner-condition {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.goal-banner-clear {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.goal-banner-clear:hover:not(:disabled) {
+  border-color: var(--text-accent);
+  color: var(--text-accent);
+}
+
+.goal-banner-clear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .input-container {
   display: flex;
   flex-wrap: wrap;

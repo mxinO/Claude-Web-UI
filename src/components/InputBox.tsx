@@ -11,6 +11,7 @@ const FALLBACK_COMMANDS = [
   { command: '/btw', description: 'Ask a side question without interrupting the main conversation' },
   { command: '/model', description: 'Switch model (default, opus, sonnet, haiku, 1M variants)' },
   { command: '/plan', description: 'Toggle plan mode — Claude plans before acting' },
+  { command: '/goal', description: 'Work autonomously toward a condition (e.g. /goal all tests pass); /goal clear to stop' },
   { command: '/compact', description: 'Compact conversation to free context' },
   { command: '/effort', description: 'Set effort level (low, medium, high, max)' },
   { command: '/permission-mode', description: 'Switch permission mode' },
@@ -51,6 +52,12 @@ const EFFORT_OPTIONS = [
   { value: 'medium', label: 'Medium effort' },
   { value: 'high', label: 'High effort' },
   { value: 'max', label: 'Max effort' },
+];
+
+// `/goal` takes a free-text condition, but offer "clear" as a one-click way to
+// stop an active goal. Typing a condition just filters this suggestion out.
+const GOAL_OPTIONS = [
+  { value: 'clear', label: 'Clear the active goal' },
 ];
 
 const PERMISSION_MODE_OPTIONS = [
@@ -135,6 +142,7 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
       if (cmd === '/model') options = MODEL_OPTIONS;
       else if (cmd === '/effort') options = EFFORT_OPTIONS;
       else if (cmd === '/permission-mode') options = PERMISSION_MODE_OPTIONS;
+      else if (cmd === '/goal') options = GOAL_OPTIONS;
 
       if (options) {
         const matches = options.filter(o =>
@@ -258,6 +266,21 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
     setError('');
     setValue('');
     closeAutocomplete();
+    // `/goal clear` (and aliases) must use the dedicated endpoint, which works
+    // while a goal makes Claude "busy" — the capture endpoint is idle-gated and
+    // would 409. This unifies the dropdown "clear" option with the banner button.
+    if (/^\/goal\s+(clear|stop|off|reset|none|cancel)\s*$/i.test(command)) {
+      try {
+        const res = await fetch('/api/goal-clear', { method: 'POST' });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          setError(d.error || `Failed: ${command}`);
+        }
+      } catch (err) {
+        setError(`Failed: ${err}`);
+      }
+      return;
+    }
     try {
       const res = await fetch('/api/send-command', {
         method: 'POST',
@@ -385,8 +408,19 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
     // Slash commands: must start with / followed by a letter (not a path like /usr/...)
     if (trimmed.startsWith('/') && /^\/[a-zA-Z]/.test(trimmed) && !trimmed.startsWith('//')) {
       const cmd = trimmed.split(/\s/)[0].toLowerCase();
-      const isKnownCommand = FALLBACK_COMMANDS.some(c => c.command === cmd);
-      if (isKnownCommand) {
+      if (cmd === '/goal') {
+        // `/goal <condition>` starts Claude working autonomously, so route it
+        // through the normal prompt path (turns on the working indicator and
+        // queues follow-ups). Bare `/goal` (status) and `/goal clear` are quick
+        // TUI responses — keep them on the capture path.
+        const arg = trimmed.slice(cmd.length).trim();
+        const isClear = /^(clear|stop|off|reset|none|cancel)$/i.test(arg);
+        if (!arg || isClear) {
+          sendSlashRef.current(trimmed);
+          return;
+        }
+        // else: goal-setting — fall through to /api/send-input below
+      } else if (FALLBACK_COMMANDS.some(c => c.command === cmd)) {
         sendSlashRef.current(trimmed);
         return;
       }

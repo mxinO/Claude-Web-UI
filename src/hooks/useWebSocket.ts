@@ -84,6 +84,11 @@ export function useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueCha
         } else if (data.type === 'busy') {
           // Server-authoritative "Claude is working" signal (turn active).
           window.dispatchEvent(new CustomEvent('claude-busy', { detail: { busy: !!data.busy } }));
+        } else if (data.type === 'goal_active') {
+          // A /goal is running (Claude works autonomously across turns).
+          window.dispatchEvent(new CustomEvent('goal-active', { detail: { condition: data.condition ?? null } }));
+        } else if (data.type === 'goal_cleared') {
+          window.dispatchEvent(new CustomEvent('goal-cleared', { detail: { result: data.result ?? null } }));
         }
       } catch {
         // ignore

@@ -12,7 +12,8 @@ import { getSessionStatus, startClaudeSession, stopClaudeSession, setSkipPermiss
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart, getManagedSessionId } from './hooks.js';
 import { addAllowedRoot } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
-import { setOnClaudeDead, startQuestionWatcher } from './streaming.js';
+import { setOnClaudeDead, startQuestionWatcher, isGoalActive } from './streaming.js';
+import { setGoalActiveGetter } from './queue.js';
 import { autoRestartClaude } from './restart.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -175,6 +176,10 @@ server.listen(PORT, HOST, () => {
   // Watch for AskUserQuestion menus (which appear during tool execution, when
   // the streaming poller is paused) and push them to the browser.
   startQuestionWatcher(() => getManagedSessionId());
+
+  // Let the queue hold follow-up messages while a `/goal` runs (the busy flag
+  // flips false between the goal's autonomous turns).
+  setGoalActiveGetter(isGoalActive);
 
   // Block all hook events until the managed Claude sends its SessionStart
   setWaitingForSessionStart(true);

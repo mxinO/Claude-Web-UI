@@ -22,7 +22,7 @@ import { autoRestartClaude } from './restart.js';
 import { broadcastPermissionDecision, broadcastEvent, broadcast } from './websocket.js';
 import { setManagedSessionId, setWaitingForSessionStart, getManagedSessionId, cleanUserMessage, isTurnActive, setTurnActive } from './hooks.js';
 import { isClaudeBusy, setClaudeBusy, enqueue, getQueue, removeQueued, resetQueue } from './queue.js';
-import { stopStreaming } from './streaming.js';
+import { stopStreaming, setPendingGoalCondition, isGoalActive, getGoalCondition } from './streaming.js';
 
 
 // Kept as no-op for callers in hooks.ts / index.ts — isPathSafe no longer
@@ -356,8 +356,25 @@ export function registerApiRoutes(app: Express): void {
       // Reject when Claude is busy so the UI can warn the user instead of
       // silently dropping the command (the TUI would ignore or misinterpret it).
       if (text.startsWith('/')) {
-        if (isClaudeBusy()) {
-          res.status(409).json({ error: 'Slash commands only work when Claude is idle — wait for the current response to finish.' });
+        if (isClaudeBusy() || isGoalActive()) {
+          const why = isGoalActive()
+            ? 'A goal is running — clear it (or wait for it to finish) before sending a command.'
+            : 'Slash commands only work when Claude is idle — wait for the current response to finish.';
+          res.status(409).json({ error: why });
+          return;
+        }
+        // `/goal <condition>` is special: it doesn't return a quick TUI response
+        // like /model — it starts Claude working autonomously across turns. So
+        // mark Claude busy (subsequent messages queue) and remember the
+        // condition so the goal watcher can label the banner reliably. Bare
+        // `/goal` (status) and `/goal clear` are quick and handled client-side
+        // via /send-command, so they don't reach here.
+        const goalCond = parseGoalSetCommand(text);
+        if (goalCond) {
+          setPendingGoalCondition(goalCond);
+          sendInput(text);
+          setClaudeBusy(true);
+          res.json({ ok: true });
           return;
         }
         sendInput(text);
@@ -365,8 +382,10 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
 
-      // If Claude is busy, queue the message
-      if (isClaudeBusy()) {
+      // If Claude is busy — or a goal is running (Claude works across turns
+      // with the busy flag flipping false between them) — queue the message.
+      // Goal-held messages drain when the goal ends (drainQueueIfIdle).
+      if (isClaudeBusy() || isGoalActive()) {
         const msg = enqueue(text);
         res.json({ ok: true, queued: true, queue_id: msg.id });
         return;
@@ -806,9 +825,27 @@ export function registerApiRoutes(app: Express): void {
         } catch { /* tmux not available */ }
       }
 
-      res.json({ model, cwd, effort, permissionMode, hostname: os.hostname(), busy: isTurnActive() });
+      res.json({
+        model, cwd, effort, permissionMode,
+        hostname: os.hostname(),
+        busy: isTurnActive(),
+        goal: { active: isGoalActive(), condition: getGoalCondition() },
+      });
     } catch {
       res.json({ model: null, cwd: null, effort: null, permissionMode: null });
+    }
+  });
+
+  // POST /api/goal-clear — stop an active `/goal` early. Sends `/goal clear`
+  // directly (bypassing the idle-gate in /send-command, since a goal makes
+  // Claude "busy"). The goal watcher will broadcast goal_cleared once the
+  // overlay disappears, which is the authoritative confirmation.
+  router.post('/goal-clear', (_req, res) => {
+    try {
+      sendInput('/goal clear');
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
     }
   });
 
@@ -1093,6 +1130,19 @@ export function registerApiRoutes(app: Express): void {
   });
 
   app.use('/api', router);
+}
+
+// `/goal clear` (and these aliases) stop a goal rather than set one.
+const GOAL_CLEAR_ALIASES = /^(clear|stop|off|reset|none|cancel)$/i;
+
+/** If `text` is a goal-SETTING command (`/goal <condition>`), return the
+ *  condition; otherwise null (bare `/goal` status, `/goal clear`, or not /goal). */
+function parseGoalSetCommand(text: string): string | null {
+  const m = text.match(/^\/goal\b\s*([\s\S]*)$/i);
+  if (!m) return null;
+  const arg = m[1].trim();
+  if (!arg || GOAL_CLEAR_ALIASES.test(arg)) return null;
+  return arg;
 }
 
 /** Extract the response to a slash command from tmux pane capture */

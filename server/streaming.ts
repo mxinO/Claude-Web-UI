@@ -8,7 +8,8 @@
 
 import { execSync } from 'child_process';
 import { broadcast } from './websocket.js';
-import { TMUX, TMUX_SESSION, TMUX_PANE, getSessionStatus, detectQuestionPrompt } from './tmux.js';
+import { TMUX, TMUX_SESSION, TMUX_PANE, getSessionStatus, detectQuestionPrompt, detectGoalState } from './tmux.js';
+import { drainQueueIfIdle, isClaudeBusy } from './queue.js';
 const POLL_INTERVAL = 400; // ms
 const QUESTION_POLL_INTERVAL = 700; // ms
 // `stdio: pipe` keeps tmux's stderr (e.g. "no server running on …") out of
@@ -39,6 +40,37 @@ let lastQuestionKey = '';
 let lastQuestionSid: string | null = null;
 let questionSessionGetter: () => string | null = () => null;
 
+// ── /goal watcher ───────────────────────────────────────────────────────────
+// A `/goal` makes Claude work autonomously across turns with no UserPromptSubmit
+// between them, so the hook-driven busy signal can't track it (the Stop hook
+// fires each turn → busy:false). Detect the `◎ /goal active` overlay in the
+// same pane poll and broadcast goal_active/goal_cleared so the UI can keep its
+// running indicator lit and show a "Goal: …" banner across the whole loop.
+let goalActive = false;
+let goalSid: string | null = null;
+let goalCondition: string | null = null;
+// The session the watcher last polled — used to detect a switch so we can drop
+// any tracked/pending goal that belonged to the previous session.
+let lastGoalWatchSid: string | null = null;
+// Set by the API when a `/goal <condition>` command is sent — the most reliable
+// source of the condition text (the pane "Goal set:" line scrolls away).
+let pendingGoalCondition: string | null = null;
+export function setPendingGoalCondition(c: string | null): void { pendingGoalCondition = c; }
+export function isGoalActive(): boolean { return goalActive; }
+export function getGoalCondition(): string | null { return goalActive ? goalCondition : null; }
+
+/** Reset goal tracking and (optionally) tell the browser the goal is gone.
+ *  Used on session death/switch where we can't trust the pane anymore. */
+function clearGoalState(broadcastTo: string | null): void {
+  if (goalActive && (broadcastTo || goalSid)) {
+    broadcast((broadcastTo || goalSid)!, 'goal_cleared', { result: null });
+  }
+  goalActive = false;
+  goalSid = null;
+  goalCondition = null;
+  pendingGoalCondition = null;
+}
+
 export function startQuestionWatcher(getSessionId: () => string | null): void {
   questionSessionGetter = getSessionId;
   if (questionTimer) return;
@@ -53,18 +85,70 @@ export function startQuestionWatcher(getSessionId: () => string | null): void {
       }
       lastQuestionKey = '';
       lastQuestionSid = null;
+      clearGoalState(null); // can't read the pane — drop any tracked goal
       return;
+    }
+    // A session switch invalidates all prior goal tracking — including a
+    // pendingGoalCondition that was set (via the API) but whose overlay the
+    // watcher never got to detect. Drop it so it can't mislabel the new
+    // session's goal. Let the watcher re-detect for the new session (resume
+    // restores active goals, so the new one may legitimately have its own).
+    if (sid !== lastGoalWatchSid) {
+      if (goalActive && goalSid) broadcast(goalSid, 'goal_cleared', { result: null });
+      goalActive = false;
+      goalSid = null;
+      goalCondition = null;
+      pendingGoalCondition = null;
+      lastGoalWatchSid = sid;
     }
     // Re-show if the active session changed, even if the question key matches.
     if (sid !== lastQuestionSid) lastQuestionKey = '';
     let q: ReturnType<typeof detectQuestionPrompt> = null;
     try { q = detectQuestionPrompt(); } catch { q = null; }
     const key = q ? `${q.question}||${q.options.map(o => `${o.index}.${o.label}`).join('|')}` : '';
-    if (key === lastQuestionKey && sid === lastQuestionSid) return;
-    lastQuestionKey = key;
-    lastQuestionSid = sid;
-    if (q) broadcast(sid, 'question_prompt', { question: q.question, options: q.options });
-    else broadcast(sid, 'question_cleared', {});
+    if (key !== lastQuestionKey || sid !== lastQuestionSid) {
+      lastQuestionKey = key;
+      lastQuestionSid = sid;
+      if (q) broadcast(sid, 'question_prompt', { question: q.question, options: q.options });
+      else broadcast(sid, 'question_cleared', {});
+    }
+
+    // ── Goal state ──
+    const g = detectGoalState(); // null = capture failed → leave state as-is
+    if (g) {
+      if (g.active && !goalActive) {
+        goalActive = true;
+        goalSid = sid;
+        goalCondition = pendingGoalCondition || g.condition || null;
+        broadcast(sid, 'goal_active', { condition: goalCondition });
+      } else if (g.active && goalActive) {
+        // Still active — fill in a condition that only landed in the pane after
+        // we first detected the overlay (or that arrived via the API late).
+        const resolved = pendingGoalCondition || g.condition;
+        if (resolved && resolved !== goalCondition) {
+          goalCondition = resolved;
+          broadcast(sid, 'goal_active', { condition: goalCondition });
+        }
+      } else if (!g.active && goalActive) {
+        const target = goalSid || sid;
+        goalActive = false;
+        goalSid = null;
+        goalCondition = null;
+        pendingGoalCondition = null;
+        broadcast(target, 'goal_cleared', { result: g.result });
+        // The goal held any follow-up messages the user queued mid-goal; now
+        // that it's over (and Claude is idle), send them.
+        drainQueueIfIdle();
+      } else if (!g.active && !goalActive && pendingGoalCondition && !isClaudeBusy()) {
+        // We recorded a condition for a `/goal` the API just sent, but the
+        // overlay never showed up and Claude is now idle — the goal must have
+        // finished within a single poll interval. Drop the stale condition so
+        // it can't mislabel a later goal. (During the legit window before the
+        // overlay appears, Claude is still busy on the goal's turn, so the
+        // !isClaudeBusy() guard keeps us from clearing it prematurely.)
+        pendingGoalCondition = null;
+      }
+    }
   }, QUESTION_POLL_INTERVAL);
   questionTimer.unref?.();
 }

@@ -10,6 +10,7 @@ import StreamingCard from './components/StreamingCard';
 import BtwToast from './components/BtwToast';
 import QuestionPrompt from './components/QuestionPrompt';
 import type { QuestionData } from './components/QuestionPrompt';
+import GoalBanner from './components/GoalBanner';
 import FileViewer from './components/FileViewer';
 import AuthOverlay from './components/AuthOverlay';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -103,6 +104,9 @@ export default function App() {
   // Server-authoritative "Claude is working" (turn active). Survives page
   // refresh and the gaps where streaming is paused (tool runs, question picker).
   const [serverBusy, setServerBusy] = useState(false);
+  // Active `/goal` (Claude working autonomously across turns). Keeps the running
+  // indicator lit across auto-continued turns and drives the goal banner.
+  const [goal, setGoal] = useState<{ condition: string | null } | null>(null);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const streamingTextRef = useRef<string | null>(null);
   const [streamingExpanded, setStreamingExpanded] = useState(false);
@@ -179,15 +183,19 @@ export default function App() {
   const { connected } = useWebSocket({ onEvent, onStreaming, onStreamingDone, onQueueChange, session, setSession });
   const { needsAuth } = useAuthRecovery();
 
-  // A pending question bar belongs to one session; drop it if the session changes.
-  useEffect(() => { setQuestionData(null); }, [session?.id]);
+  // A pending question bar / goal banner belongs to one session; drop them if
+  // the session changes (the watcher re-broadcasts goal state for the new one).
+  useEffect(() => { setQuestionData(null); setGoal(null); }, [session?.id]);
 
   // Seed the busy indicator on load/refresh from the server, so a turn that
   // was already in progress still shows a running indicator.
   useEffect(() => {
     fetch('/api/current-status')
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (d && typeof d.busy === 'boolean') setServerBusy(d.busy); })
+      .then(d => {
+        if (d && typeof d.busy === 'boolean') setServerBusy(d.busy);
+        if (d?.goal?.active) setGoal({ condition: d.goal.condition ?? null });
+      })
       .catch(() => {});
   }, []);
 
@@ -360,6 +368,18 @@ export default function App() {
       if (busy) cancelledRef.current = false; // new turn started
     };
     window.addEventListener('claude-busy', busyHandler);
+    // Goal state: a /goal makes Claude work across turns with no per-turn busy
+    // signal, so track it separately and fold it into the running indicator.
+    const goalActiveHandler = (e: Event) => {
+      const condition = (e as CustomEvent).detail?.condition ?? null;
+      setGoal({ condition });
+      cancelledRef.current = false; // goal is actively running
+    };
+    const goalClearedHandler = () => setGoal(null);
+    window.addEventListener('goal-active', goalActiveHandler);
+    window.addEventListener('goal-cleared', goalClearedHandler);
+    // A goal belongs to the live session; a death drops it too.
+    window.addEventListener('claude-dead', goalClearedHandler);
     // Open the shared file viewer when a file path link is clicked anywhere
     // (chat messages, file explorer).
     const viewFileHandler = (e: Event) => {
@@ -382,6 +402,9 @@ export default function App() {
       window.removeEventListener('question-cleared', questionClearedHandler);
       window.removeEventListener('claude-dead', dropQuestion);
       window.removeEventListener('claude-busy', busyHandler);
+      window.removeEventListener('goal-active', goalActiveHandler);
+      window.removeEventListener('goal-cleared', goalClearedHandler);
+      window.removeEventListener('claude-dead', goalClearedHandler);
       window.removeEventListener('view-file', viewFileHandler);
     };
   }, []);
@@ -423,12 +446,14 @@ export default function App() {
 
   // Thinking state: Claude is working but no live text yet. Driven by the
   // local "just sent" flag OR the server-authoritative turn-active signal
-  // (the latter survives refresh and covers paused-streaming gaps).
-  const isThinking = (waitingForReply || serverBusy) && !streamingText && !cancelledRef.current;
+  // (the latter survives refresh and covers paused-streaming gaps). An active
+  // goal also counts as working — and overrides a local cancel, since a goal
+  // keeps running across turns even if the user interrupted a single one.
+  const isThinking = !streamingText && (!!goal || ((waitingForReply || serverBusy) && !cancelledRef.current));
 
-  // Running state: thinking, streaming, a tool in progress, or server says the
-  // turn is active (but not after a local cancel).
-  const isRunning = !cancelledRef.current && (isThinking || !!streamingText || serverBusy || events.some(e => e.event_type === 'tool_running'));
+  // Running state: thinking, streaming, a tool in progress, the server says the
+  // turn is active (but not after a local cancel), or a goal is active.
+  const isRunning = !!goal || (!cancelledRef.current && (isThinking || !!streamingText || serverBusy || events.some(e => e.event_type === 'tool_running')));
 
   return (
     <div className="app">
@@ -561,6 +586,7 @@ export default function App() {
             </div>
           </div>
 
+          {goal && <GoalBanner condition={goal.condition} />}
           {questionData && (
             <QuestionPrompt
               data={questionData}

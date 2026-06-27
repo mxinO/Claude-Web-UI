@@ -176,6 +176,78 @@ export function parseQuestionPane(pane: string): QuestionPrompt | null {
   return { question, options: collected };
 }
 
+export type GoalResult = 'achieved' | 'cleared' | 'failed' | null;
+export interface GoalState {
+  /** True while a `/goal` is running (the `◎ /goal active` overlay is shown). */
+  active: boolean;
+  /** The goal condition, best-effort parsed from the latest `Goal set:` line. */
+  condition: string | null;
+  /** The most recent terminal marker (only meaningful at active→inactive). */
+  result: GoalResult;
+}
+
+// The live overlay Claude Code renders in the status hint line while a goal
+// runs: "… · ◎ /goal active". The bare "/goal active" substring is distinctive
+// enough that we don't depend on the ◎ glyph surviving capture encoding.
+const GOAL_ACTIVE_RE = /\/goal active/;
+// Transcript markers (see binary strings + live capture):
+//   ⎿  Goal set: <condition>
+//   ✔ Goal achieved (8s · 1 turn · 278 tokens)
+//   Goal cleared / Goal could not be achieved
+const GOAL_SET_RE = /Goal set:\s*(.+\S)\s*$/;
+const GOAL_ACHIEVED_RE = /Goal achieved/;
+const GOAL_FAILED_RE = /Goal could not be achieved/;
+const GOAL_CLEARED_RE = /Goal cleared/;
+
+/** Capture the pane and report the current `/goal` state. Returns null only on
+ *  capture failure (caller should treat as "unknown", not "inactive"). */
+export function detectGoalState(): GoalState | null {
+  let pane: string;
+  try {
+    pane = execSync(
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -40`,
+      tmuxExecOpts(3000),
+    );
+  } catch {
+    return null;
+  }
+  return parseGoalPane(pane);
+}
+
+/** Pure parser for `/goal` state (separated from capture for unit tests). */
+export function parseGoalPane(pane: string): GoalState {
+  const lines = pane.split('\n');
+
+  // Active detection: the `◎ /goal active` overlay lives in the status hint
+  // line just above the input box (always near the bottom of the pane). Only
+  // scan the tail — matching the full -S -40 capture would false-positive on
+  // ordinary transcript text that happens to contain "/goal active" (e.g.
+  // Claude explaining this very command in a code block), which would pin the
+  // running indicator on until that text scrolled out of the window. 12 lines
+  // covers the overlay + a separator + a few-line input box + footer, with
+  // margin, while still excluding deep scrollback.
+  const active = lines.slice(-12).some(l => GOAL_ACTIVE_RE.test(l));
+
+  // Condition: the LAST "Goal set:" line (most recent goal).
+  let condition: string | null = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(GOAL_SET_RE);
+    if (m) { condition = m[1].trim(); break; }
+  }
+
+  // Result: the most recent (bottom-most) terminal marker, so a previous goal's
+  // marker lingering in scrollback doesn't shadow the current outcome.
+  let result: GoalResult = null;
+  for (let i = lines.length - 1; i >= 0 && result === null; i--) {
+    const line = lines[i];
+    if (GOAL_ACHIEVED_RE.test(line)) result = 'achieved';
+    else if (GOAL_FAILED_RE.test(line)) result = 'failed';
+    else if (GOAL_CLEARED_RE.test(line)) result = 'cleared';
+  }
+
+  return { active, condition, result };
+}
+
 /** Answer the AskUserQuestion menu by selecting option `index` (sends the
  *  literal digit, which selects + confirms). Validates that `index` is an
  *  option on the CURRENTLY-visible menu, so a stale click can't land on a

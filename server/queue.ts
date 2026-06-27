@@ -16,6 +16,13 @@ let claudeBusy = false;
 let sessionIdGetter: () => string | null = () => null;
 export function setSessionIdGetter(fn: () => string | null): void { sessionIdGetter = fn; }
 
+// Goal-active getter — injected (not imported) to avoid a queue↔streaming cycle.
+// While a `/goal` runs, Claude works across turns and the per-turn Stop hook
+// flips claudeBusy false; we must NOT drain queued follow-ups into the middle
+// of an autonomous turn. They are held until the goal ends (drainQueueIfIdle).
+let goalActiveGetter: () => boolean = () => false;
+export function setGoalActiveGetter(fn: () => boolean): void { goalActiveGetter = fn; }
+
 export function isClaudeBusy(): boolean { return claudeBusy; }
 
 /** Hard reset: clear busy flag and discard all queued messages. Use on session switch. */
@@ -36,6 +43,17 @@ export function setClaudeBusy(busy: boolean): void {
   // Only drain if transitioning from busy -> idle
   if (!claudeBusy) return;
   claudeBusy = false;
+  // Hold queued messages while a goal is running — draining now would inject a
+  // follow-up into the middle of the goal's next autonomous turn. The goal
+  // watcher calls drainQueueIfIdle() once the goal actually ends.
+  if (goalActiveGetter()) return;
+  drainQueue();
+}
+
+/** Drain the queue if Claude is idle. Called when a `/goal` ends so follow-ups
+ *  held during the goal are sent once it's safe. */
+export function drainQueueIfIdle(): void {
+  if (claudeBusy) return;
   drainQueue();
 }
 
