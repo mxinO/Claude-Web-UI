@@ -25,12 +25,33 @@ describe('parseQuestionPane', () => {
     expect(out).not.toBeNull();
     expect(out!.question).toBe('Which color do you prefer?');
     expect(out!.options).toEqual([
-      { index: 1, label: 'Red' },
-      { index: 2, label: 'Green' },
-      { index: 3, label: 'Blue' },
+      { index: 1, label: 'Red', description: 'A warm, bold color.' },
+      { index: 2, label: 'Green', description: 'A cool, natural color.' },
+      { index: 3, label: 'Blue', description: 'A calm, cool color.' },
       { index: 4, label: 'Type something.' },
       { index: 5, label: 'Chat about this' },
     ]);
+  });
+
+  it('joins a description that wraps across multiple pane lines', () => {
+    const out = parseQuestionPane(pane([
+      ' ☐ Deploy target',
+      '',
+      'Which deployment target do you prefer?',
+      '',
+      '❯ 1. Staging',
+      '     A production-like environment for final validation, but changes',
+      '     are isolated from real users so mistakes carry low risk.',
+      '  2. Production',
+      '     Deploys directly to live users.',
+      ' Enter to select · ↑/↓ to navigate · Esc to cancel',
+    ]));
+    expect(out!.options[0]).toEqual({
+      index: 1,
+      label: 'Staging',
+      description: 'A production-like environment for final validation, but changes are isolated from real users so mistakes carry low risk.',
+    });
+    expect(out!.options[1].description).toBe('Deploys directly to live users.');
   });
 
   it('does NOT merge a previously-answered menu still in scrollback', () => {

@@ -80,9 +80,10 @@ type AutocompleteMode = 'none' | 'slash' | 'file';
 
 interface InputBoxProps {
   isRunning?: boolean;
+  goalActive?: boolean;
 }
 
-export default function InputBox({ isRunning }: InputBoxProps = {}) {
+export default function InputBox({ isRunning, goalActive }: InputBoxProps = {}) {
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
   const historyRef = useRef<string[]>([]);
@@ -549,16 +550,23 @@ export default function InputBox({ isRunning }: InputBoxProps = {}) {
             className="stop-button"
             onClick={async () => {
               try {
+                // Interrupt the in-flight turn first (brings Claude to an idle
+                // prompt), then — if a /goal is driving the work — clear it, or
+                // the autonomous loop just starts another turn and the
+                // indicator never stops.
                 const res = await fetch('/api/interrupt', { method: 'POST' });
                 const data = await res.json().catch(() => ({}));
                 window.dispatchEvent(new CustomEvent('claude-interrupted', {
                   detail: { restoredText: data.restoredText || null }
                 }));
+                if (goalActive) {
+                  await fetch('/api/goal-clear', { method: 'POST' }).catch(() => {});
+                }
               } catch {
                 window.dispatchEvent(new CustomEvent('claude-interrupted'));
               }
             }}
-            title="Stop (interrupt current operation)"
+            title={goalActive ? 'Stop the goal and interrupt Claude' : 'Stop (interrupt current operation)'}
           >
             ⏹
           </button>

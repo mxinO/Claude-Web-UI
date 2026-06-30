@@ -101,7 +101,7 @@ export function isPermissionPromptVisible(): boolean {
   return capturePermissionPrompt() !== null;
 }
 
-export interface QuestionOption { index: number; label: string; }
+export interface QuestionOption { index: number; label: string; description?: string; }
 export interface QuestionPrompt { question: string; options: QuestionOption[]; }
 
 /** Detect Claude's AskUserQuestion menu in the pane and parse it. It renders:
@@ -148,18 +148,36 @@ export function parseQuestionPane(pane: string): QuestionPrompt | null {
   }
   if (footerIdx === -1) return null;
 
-  const collected: QuestionOption[] = [];
+  // Anchor on the current menu's option "1." nearest the footer (menus start at
+  // 1), scanning upward so a previously-answered menu in scrollback isn't
+  // merged in.
   let topOptionIdx = -1;
   for (let i = footerIdx - 1; i >= 0 && topOptionIdx === -1; i--) {
     const m = lines[i].match(OPTION_RE);
-    if (m) {
-      const index = parseInt(m[1], 10);
-      collected.unshift({ index, label: m[2].trim() });
-      if (index === 1) topOptionIdx = i; // top of the current menu
-    }
-    // non-option lines (descriptions, blanks, separators) are skipped
+    if (m && parseInt(m[1], 10) === 1) topOptionIdx = i;
   }
-  if (collected.length === 0 || topOptionIdx === -1) return null;
+  if (topOptionIdx === -1) return null;
+
+  // Forward pass over the current menu: each option line starts a new option;
+  // the indented non-option lines beneath it are that option's description
+  // (it wraps across several pane lines, so join them with spaces).
+  const collected: QuestionOption[] = [];
+  let cur: QuestionOption | null = null;
+  for (let i = topOptionIdx; i < footerIdx; i++) {
+    const m = lines[i].match(OPTION_RE);
+    if (m) {
+      cur = { index: parseInt(m[1], 10), label: m[2].trim(), description: '' };
+      collected.push(cur);
+      continue;
+    }
+    const t = lines[i].trim();
+    if (!t) continue;                    // blank
+    if (/^[─━]{3,}$/.test(t)) continue;  // separator between options 4 and 5
+    if (/^[☐☑▢◻]/.test(t)) continue;     // header chip
+    if (cur) cur.description = cur.description ? `${cur.description} ${t}` : t;
+  }
+  if (collected.length === 0) return null;
+  for (const o of collected) if (!o.description) delete o.description;
 
   // Question = nearest meaningful line above option 1 that isn't a separator,
   // a "☐ Header" chip, or another option line (which would be a prior menu).

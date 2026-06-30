@@ -593,7 +593,7 @@ export default function App() {
               onAnswered={() => setQuestionData(null)}
             />
           )}
-          <InputBox isRunning={isRunning} />
+          <InputBox isRunning={isRunning} goalActive={!!goal} />
         </div>{/* end .main-panel */}
       </div>{/* end .app-body */}
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export interface QuestionOption { index: number; label: string; }
+export interface QuestionOption { index: number; label: string; description?: string; }
 export interface QuestionData { question: string; options: QuestionOption[]; }
 
 interface Props {
@@ -61,7 +61,12 @@ export default function QuestionPrompt({ data, onAnswered }: Props) {
             title={`Option ${o.index}`}
           >
             <span className="question-prompt-num">{o.index}</span>
-            {o.label}
+            <span className="question-prompt-text">
+              <span className="question-prompt-label">{o.label}</span>
+              {o.description && (
+                <span className="question-prompt-desc">{o.description}</span>
+              )}
+            </span>
           </button>
         ))}
       </div>
