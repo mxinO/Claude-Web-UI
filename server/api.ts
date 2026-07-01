@@ -352,29 +352,32 @@ export function registerApiRoutes(app: Express): void {
         return;
       }
 
-      // Slash commands are TUI commands, not prompts — they don't queue.
-      // Reject when Claude is busy so the UI can warn the user instead of
-      // silently dropping the command (the TUI would ignore or misinterpret it).
       if (text.startsWith('/')) {
-        if (isClaudeBusy() || isGoalActive()) {
-          const why = isGoalActive()
-            ? 'A goal is running — clear it (or wait for it to finish) before sending a command.'
-            : 'Slash commands only work when Claude is idle — wait for the current response to finish.';
-          res.status(409).json({ error: why });
-          return;
-        }
-        // `/goal <condition>` is special: it doesn't return a quick TUI response
-        // like /model — it starts Claude working autonomously across turns. So
-        // mark Claude busy (subsequent messages queue) and remember the
-        // condition so the goal watcher can label the banner reliably. Bare
-        // `/goal` (status) and `/goal clear` are quick and handled client-side
-        // via /send-command, so they don't reach here.
+        // `/goal <condition>` is special: unlike /model etc. it doesn't return a
+        // quick TUI response — it starts Claude working autonomously across
+        // turns. It can be set even while Claude is busy or another goal is
+        // running: the TUI accepts it mid-turn and activates it immediately
+        // (verified live). So handle it BEFORE the idle gate below. Mark Claude
+        // busy (so follow-up messages queue) and remember the condition for the
+        // goal watcher to label the banner. Bare `/goal` (status) and
+        // `/goal clear` go through /send-command and /goal-clear respectively,
+        // so they don't reach here.
         const goalCond = parseGoalSetCommand(text);
         if (goalCond) {
           setPendingGoalCondition(goalCond);
           sendInput(text);
           setClaudeBusy(true);
           res.json({ ok: true });
+          return;
+        }
+        // Other slash commands are TUI commands, not prompts — they don't queue.
+        // Reject when Claude is busy so the UI can warn the user instead of
+        // silently dropping the command (the TUI would ignore or misinterpret it).
+        if (isClaudeBusy() || isGoalActive()) {
+          const why = isGoalActive()
+            ? 'A goal is running — clear it (or wait for it to finish) before sending a command.'
+            : 'Slash commands only work when Claude is idle — wait for the current response to finish.';
+          res.status(409).json({ error: why });
           return;
         }
         sendInput(text);
