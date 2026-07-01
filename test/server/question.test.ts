@@ -78,6 +78,63 @@ describe('parseQuestionPane', () => {
     ]);
   });
 
+  it('detects the multi-question review/submit screen (no standard footer)', () => {
+    const out = parseQuestionPane(pane([
+      '←  ☒ Language  ☒ Database  ✔ Submit  →',
+      '',
+      'Review your answers',
+      '',
+      ' ● Which language?',
+      '   → Python',
+      ' ● Which database?',
+      '   → Postgres',
+      '',
+      'Ready to submit your answers?',
+      '',
+      '❯ 1. Submit answers',
+      '  2. Cancel',
+    ]));
+    expect(out).not.toBeNull();
+    expect(out!.question).toBe('Submit your answers? (Which language → Python; Which database → Postgres)');
+    expect(out!.options).toEqual([
+      { index: 1, label: 'Submit answers' },
+      { index: 2, label: 'Cancel' },
+    ]);
+  });
+
+  it('falls back to a plain prompt on the submit screen with no review pairs', () => {
+    const out = parseQuestionPane(pane([
+      'Ready to submit your answers?',
+      '❯ 1. Submit answers',
+      '  2. Cancel',
+    ]));
+    expect(out!.question).toBe('Ready to submit your answers?');
+    expect(out!.options.map(o => o.label)).toEqual(['Submit answers', 'Cancel']);
+  });
+
+  it('does NOT let a stale submit line in scrollback hijack a live menu', () => {
+    // A prior multi-question flow left "Ready to submit your answers?" in
+    // scrollback; a new single-question menu (with a real footer) is now live.
+    // The live menu must win — submit detection is gated behind the missing
+    // footer, so it never runs here.
+    const out = parseQuestionPane(pane([
+      'Ready to submit your answers?',
+      '❯ 1. Submit answers',
+      '  2. Cancel',
+      '── (later) ──',
+      ' ☐ Color',
+      '',
+      'Which color?',
+      '',
+      '❯ 1. Red',
+      '  2. Blue',
+      ' Enter to select · ↑/↓ to navigate · Esc to cancel',
+    ]));
+    expect(out).not.toBeNull();
+    expect(out!.question).toBe('Which color?');
+    expect(out!.options.map(o => o.label)).toEqual(['Red', 'Blue']);
+  });
+
   it('returns null for a permission prompt (different footer)', () => {
     const out = parseQuestionPane(pane([
       ' Do you want to create foo.txt?',

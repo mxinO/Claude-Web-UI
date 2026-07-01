@@ -134,7 +134,15 @@ export function detectQuestionPrompt(): QuestionPrompt | null {
 /** Pure parser for the AskUserQuestion menu (separated from capture so it's
  *  unit-testable). Exported for tests. */
 export function parseQuestionPane(pane: string): QuestionPrompt | null {
-  if (!/Enter to select/i.test(pane) || !/to navigate/i.test(pane)) return null;
+  // A live per-question menu always carries the "Enter to select … navigate"
+  // footer. The multi-question review/submit screen is the ONLY AskUserQuestion
+  // screen without one, so gate its detection behind the missing footer. Doing
+  // it this way (rather than checking the submit screen first) prevents a stale
+  // "Ready to submit your answers?" line lingering in scrollback from hijacking
+  // a live, footer-bearing menu and mislabeling its options.
+  if (!/Enter to select/i.test(pane) || !/to navigate/i.test(pane)) {
+    return parseSubmitScreen(pane);
+  }
 
   const lines = pane.split('\n');
   // Anchor on the LAST "Enter to select" footer — the active menu sits just
@@ -192,6 +200,67 @@ export function parseQuestionPane(pane: string): QuestionPrompt | null {
     break;
   }
   return { question, options: collected };
+}
+
+/** Detect the review/submit screen shown after the last question of a
+ *  multi-question AskUserQuestion call:
+ *      Review your answers
+ *       ● Which language?
+ *         → Python
+ *       ● Which database?
+ *         → Postgres
+ *      Ready to submit your answers?
+ *      ❯ 1. Submit answers
+ *        2. Cancel
+ *  It has no "Enter to select … navigate" footer. We surface it as a question
+ *  ("Submit your answers?" plus a one-line summary of the picks) with the
+ *  Submit/Cancel options so the web user can finish the flow. */
+function parseSubmitScreen(pane: string): QuestionPrompt | null {
+  if (!/Ready to submit your answers\?/i.test(pane)) return null;
+  const lines = pane.split('\n');
+
+  // Anchor on the LAST "Ready to submit" line (a stale earlier one may sit in
+  // scrollback); options follow it.
+  let anchorIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/Ready to submit your answers\?/i.test(lines[i])) { anchorIdx = i; break; }
+  }
+  if (anchorIdx === -1) return null;
+
+  // Collect the options directly beneath the anchor, stopping at the first
+  // non-blank, non-option line so a stray numbered line further down (a hint, a
+  // wrapped answer starting with a digit) can't be swallowed as an option.
+  const options: QuestionOption[] = [];
+  for (let i = anchorIdx + 1; i < lines.length; i++) {
+    const m = lines[i].match(OPTION_RE);
+    if (m) { options.push({ index: parseInt(m[1], 10), label: m[2].trim() }); continue; }
+    if (lines[i].trim() === '') continue;
+    if (options.length) break;
+  }
+  // Require the defining "Submit …" option: guards against a stale phrase in
+  // scrollback happening to precede an unrelated numbered list.
+  if (!options.some(o => /submit/i.test(o.label))) return null;
+
+  // Build a one-line summary of the picks from the "● question / → answer"
+  // pairs in the review block (bounded to below "Review your answers", since
+  // `●` is also Claude's ordinary response-bullet glyph elsewhere in the pane).
+  let reviewStart = anchorIdx;
+  for (let i = anchorIdx - 1; i >= 0; i--) {
+    if (/Review your answers/i.test(lines[i])) { reviewStart = i; break; }
+  }
+  const picks: string[] = [];
+  let lastQ = '';
+  for (let i = reviewStart; i < anchorIdx; i++) {
+    const t = lines[i].trim();
+    const q = t.match(/^●\s+(.*\S)\s*$/);
+    if (q) { lastQ = q[1].replace(/\?$/, ''); continue; }
+    const a = t.match(/^→\s+(.*\S)\s*$/);
+    if (a && lastQ) { picks.push(`${lastQ} → ${a[1]}`); lastQ = ''; }
+  }
+  const question = picks.length
+    ? `Submit your answers? (${picks.join('; ')})`
+    : 'Ready to submit your answers?';
+  return { question, options };
 }
 
 export type GoalResult = 'achieved' | 'cleared' | 'failed' | null;
