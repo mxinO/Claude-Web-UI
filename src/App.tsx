@@ -11,7 +11,7 @@ import BtwToast from './components/BtwToast';
 import QuestionPrompt from './components/QuestionPrompt';
 import type { QuestionData } from './components/QuestionPrompt';
 import GoalBanner from './components/GoalBanner';
-import FileViewer from './components/FileViewer';
+import FileViewer, { shouldOpenInNewTab, fileApiUrl } from './components/FileViewer';
 import AuthOverlay from './components/AuthOverlay';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { QueuedMessage } from './hooks/useWebSocket';
@@ -381,10 +381,20 @@ export default function App() {
     // A goal belongs to the live session; a death drops it too.
     window.addEventListener('claude-dead', goalClearedHandler);
     // Open the shared file viewer when a file path link is clicked anywhere
-    // (chat messages, file explorer).
+    // (chat messages, file explorer). Browser-native formats (pdf/html) open
+    // straight in a new tab — the in-app panel can't render them inline; every
+    // other type opens in the panel. Dispatched synchronously from the click
+    // handler, so window.open stays within the user gesture (no popup block).
     const viewFileHandler = (e: Event) => {
       const p = (e as CustomEvent).detail?.path;
-      if (typeof p === 'string' && p) setViewerPath(p);
+      if (typeof p !== 'string' || !p) return;
+      if (shouldOpenInNewTab(p)) {
+        // If a popup blocker nixes the new tab, fall back to the panel (which
+        // offers its own "Open in new tab ↗" affordance) rather than dead-click.
+        const w = window.open(fileApiUrl(p), '_blank', 'noopener,noreferrer');
+        if (w) return;
+      }
+      setViewerPath(p);
     };
     window.addEventListener('view-file', viewFileHandler);
     window.addEventListener('claude-message-sent', handler);

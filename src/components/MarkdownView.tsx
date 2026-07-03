@@ -96,23 +96,44 @@ function rehypeFileLinks() {
   return (tree: HastNode) => visit(tree, false);
 }
 
+/** True for an href that points at a local file path rather than an external
+ *  resource. Excludes fragments (#…), protocol-relative (//host) and any
+ *  scheme URL (http:, https:, mailto:, tel:, data:, cwui-file:, …). Everything
+ *  else — relative ("src/x.ts"), absolute ("/home/x"), "./", "../", "~/" — is a
+ *  local path that must open in the file viewer, NOT navigate the SPA (which
+ *  would land on a blank "new chat" tab). */
+function isLocalFileHref(href: string): boolean {
+  if (!href || href.startsWith('#')) return false;
+  if (href.startsWith('//')) return false;              // protocol-relative URL
+  if (/^[a-zA-Z][\w+.-]*:/.test(href)) return false;    // any scheme:  (http, mailto, cwui-file, …)
+  return true;
+}
+
+function openInViewer(path: string) {
+  window.dispatchEvent(new CustomEvent('view-file', { detail: { path } }));
+}
+
 const components = {
   a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
     const href = props.href || '';
-    if (href.startsWith(FILE_HREF)) {
-      const path = decodeURIComponent(href.slice(FILE_HREF.length));
+    // Auto-linkified file paths (sentinel scheme) and real markdown links to
+    // local files both open in the shared file viewer.
+    const filePath = href.startsWith(FILE_HREF)
+      ? decodeURIComponent(href.slice(FILE_HREF.length))
+      : isLocalFileHref(href) ? href : null;
+    if (filePath !== null) {
       return (
         <a
           href="#"
           className="file-link"
           onClick={(e) => {
             e.preventDefault();
-            window.dispatchEvent(new CustomEvent('view-file', { detail: { path } }));
+            openInViewer(filePath);
           }}
         >{props.children}</a>
       );
     }
-    // Normal links open in a new tab.
+    // External links open in a new tab.
     return <a {...props} target="_blank" rel="noopener noreferrer" />;
   },
 };

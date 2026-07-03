@@ -3,9 +3,10 @@ import { MarkdownView } from './MarkdownView';
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
 const MD_EXTS = ['md', 'markdown', 'mdx'];
-// Browser renders these natively — open raw in a new tab via the streaming
-// /api/file endpoint (Content-Type drives the browser's viewer).
-const NATIVE_EXTS = ['pdf', 'html', 'htm'];
+// Formats the browser renders on its own — open these straight in a new tab via
+// the streaming /api/file endpoint (Content-Type drives the browser's viewer)
+// rather than the in-app panel, which can't display them inline.
+const NEW_TAB_EXTS = ['pdf', 'html', 'htm'];
 // Inline as text. Everything else (unknown / likely binary) gets the
 // "open in new tab" affordance instead of dumping bytes into a <pre>.
 const TEXT_EXTS = [
@@ -18,6 +19,20 @@ const TEXT_NAMES = ['dockerfile', 'makefile', 'readme', 'license', 'gitignore', 
 
 type Kind = 'image' | 'markdown' | 'native' | 'text';
 
+/** The streaming file endpoint URL for a path. */
+export function fileApiUrl(path: string): string {
+  return `/api/file?path=${encodeURIComponent(path)}`;
+}
+
+/** True if the file should open directly in a new browser tab (pdf/html) rather
+ *  than the in-app viewer panel. */
+export function shouldOpenInNewTab(path: string): boolean {
+  const base = path.split('/').pop() || path;
+  const dot = base.lastIndexOf('.');
+  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+  return NEW_TAB_EXTS.includes(ext);
+}
+
 function classify(filePath: string): Kind {
   const base = filePath.split('/').pop() || filePath;
   // lastIndexOf('.') > 0 so leading-dot files (.gitignore, .npmrc) have ext=''
@@ -26,7 +41,7 @@ function classify(filePath: string): Kind {
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
   if (IMAGE_EXTS.includes(ext)) return 'image';
   if (MD_EXTS.includes(ext)) return 'markdown';
-  if (NATIVE_EXTS.includes(ext)) return 'native';
+  if (NEW_TAB_EXTS.includes(ext)) return 'native';
   if (TEXT_EXTS.includes(ext)) return 'text';
   if (!ext && TEXT_NAMES.includes(base.replace(/^\./, '').toLowerCase())) return 'text';
   // No/unknown extension: extensionless (README, LICENSE, .gitignore) → text;
@@ -37,7 +52,7 @@ function classify(filePath: string): Kind {
 interface Props { path: string; onClose: () => void; }
 
 export default function FileViewer({ path, onClose }: Props) {
-  const url = `/api/file?path=${encodeURIComponent(path)}`;
+  const url = fileApiUrl(path);
   const kind = classify(path);
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState('');
