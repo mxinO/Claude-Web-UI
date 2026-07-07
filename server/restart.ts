@@ -12,7 +12,7 @@ const HOOKS_SETTINGS_PATH = path.join(__dirname, '..', 'data', 'hooks-settings.j
 
 /** Check whether Claude Code has a JSONL transcript for this session/cwd.
  *  Without one, `claude --resume <id>` errors out and Claude exits. */
-function jsonlExistsForSession(sessionId: string, cwd: string): boolean {
+export function jsonlExistsForSession(sessionId: string, cwd: string): boolean {
   const home = process.env.HOME || '/root';
   const projectsDir = path.join(home, '.claude', 'projects');
   // Claude Code encodes the cwd by replacing slashes (and other separators)

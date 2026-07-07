@@ -18,6 +18,7 @@ import { broadcast } from './websocket.js';
 import { addAllowedRoot } from './api.js';
 import { setClaudeBusy, setSessionIdGetter } from './queue.js';
 import { TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
+import { recordLastSession } from './lastSession.js';
 
 const MAX_SNAPSHOT_BYTES = 1024 * 1024; // 1 MB
 const DEBUG = process.env.DEBUG_HOOKS === '1';
@@ -415,6 +416,8 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     }
     createSession(session_id, model, cwd);
     if (cwd) addAllowedRoot(cwd);
+    // Remember this as the session to resume on the next server restart.
+    recordLastSession(session_id, cwd ?? null);
     // Pre-populate the assistant-UUID seen set with anything already in the
     // JSONL — those messages either came from importFromJsonl (above) or
     // belong to a resumed session whose events are already in our DB.
@@ -455,6 +458,10 @@ export function registerHookRoutes(app: Express, bc: BroadcastFns): void {
     processedAssistantUuids.delete(session_id);
     fallbackInsertedText.delete(session_id);
     turnActive = false;
+    // Deliberately do NOT clear the last-session pointer here: SessionEnd also
+    // fires during the graceful shutdown that precedes a server restart, so
+    // clearing it would defeat resume-on-restart. The pointer is only ever
+    // overwritten by the next managed SessionStart.
     res.json({ ok: true });
   });
 

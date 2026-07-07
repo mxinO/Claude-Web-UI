@@ -14,7 +14,8 @@ import { addAllowedRoot } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
 import { setOnClaudeDead, startQuestionWatcher, isGoalActive } from './streaming.js';
 import { setGoalActiveGetter } from './queue.js';
-import { autoRestartClaude } from './restart.js';
+import { autoRestartClaude, jsonlExistsForSession } from './restart.js';
+import { readLastSession } from './lastSession.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Parse CLI args: --host, --port, --mock, and positional CWD
@@ -204,14 +205,36 @@ server.listen(PORT, HOST, () => {
     bootstrapExistingSession();
   } else {
     try {
-      startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD);
-      console.log(`Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
+      // Resume the previous active session (across a server restart) when we
+      // have a pointer to one and Claude still holds its transcript; otherwise
+      // start fresh. The SessionStart hook will re-attach to that session's DB.
+      const last = readLastSession();
+      let resumeCwd = CLAUDE_CWD;
+      let resumingId: string | null = null;
+      if (last && jsonlExistsForSession(last.sessionId, last.cwd || CLAUDE_CWD)) {
+        resumeCwd = last.cwd || CLAUDE_CWD;
+        resumingId = last.sessionId;
+        addAllowedRoot(resumeCwd);
+      }
+      const resumeArg = resumingId ? ` --resume ${resumingId}` : '';
+      startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}${resumeArg}`, resumeCwd);
+      console.log(resumingId
+        ? `Resumed previous session ${resumingId} in tmux "${TMUX_SESSION}" (cwd: ${resumeCwd})`
+        : `Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
       // tmux new-session -d returns success once the session is created, even
       // if `claude` itself exits immediately (e.g. CLI not found, bad cwd, auth
       // missing). Probe a few seconds later — if the session is gone, claude
       // crashed and the user needs to know why instead of staring at a hung UI.
       setTimeout(() => {
         if (!getSessionStatus().alive) {
+          if (resumingId) {
+            // --resume can fail (e.g. cwd/JSONL encoding drift) and exit Claude.
+            // Don't leave the user stuck: fall back to a fresh session.
+            console.warn(`[startup] Resuming ${resumingId} failed (claude exited) — starting a fresh session in ${CLAUDE_CWD}`);
+            try { startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD); }
+            catch (e) { console.error('[startup] fresh-session fallback failed:', e); }
+            return;
+          }
           console.error(
             '\n[startup] Claude tmux session disappeared within 3s — claude likely failed to start.\n' +
             '         Common causes:\n' +
