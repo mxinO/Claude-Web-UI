@@ -1,12 +1,51 @@
-import Database from 'better-sqlite3';
+// Node's built-in SQLite (node:sqlite) — no native module to download or
+// compile, so this works on offline / locked-down clusters where a prebuilt
+// better-sqlite3 binary can't be fetched or built. API is a near drop-in:
+// .prepare().run/get/all, {changes, lastInsertRowid}, named + positional params.
+//
+// Requires Node >= 22.13.0: node:sqlite landed in 22.5 but behind the
+// --experimental-sqlite flag until 22.13 (and 23.4), so on 22.5–22.12 a bare
+// require throws unless the flag is passed.
+//
+// Loaded via createRequire rather than a static `import ... from 'node:sqlite'`
+// because vitest's bundled (older) module runner strips the `node:` prefix and
+// fails to resolve the newer `node:sqlite` builtin. A runtime require sidesteps
+// that static resolution; the tsx production runtime handles it either way.
+import { createRequire } from 'node:module';
 import { randomUUID } from 'crypto';
 import type { DbSession, DbEvent, DbPermissionRequest, ReconnectSummary } from './types.js';
 
-let db: Database.Database | null = null;
+// Minimal structural type for the bits of node:sqlite we use. get()/all() return
+// `unknown` (callers cast to a concrete row type, as they did with
+// better-sqlite3), which keeps every existing cast at the call sites valid.
+interface SqliteStatement {
+  get(...params: unknown[]): unknown;
+  all(...params: unknown[]): unknown[];
+  run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
+}
+interface SqliteDb {
+  prepare(sql: string): SqliteStatement;
+  exec(sql: string): void;
+  close(): void;
+}
+function loadDatabaseSync(): new (path: string) => SqliteDb {
+  try {
+    return createRequire(import.meta.url)('node:sqlite').DatabaseSync;
+  } catch (err) {
+    throw new Error(
+      `Failed to load node:sqlite (needed for the database). It requires Node >= 22.13.0 ` +
+      `(flag-free); you are on ${process.version}. Please upgrade Node. Original error: ${(err as Error).message}`
+    );
+  }
+}
+const DatabaseSyncCtor = loadDatabaseSync();
+
+let db: SqliteDb | null = null;
 
 export function initDb(dbPath = 'claude-web-ui.sqlite'): void {
-  db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
+  db = new DatabaseSyncCtor(dbPath);
+  // node:sqlite has no .pragma() helper — issue it as SQL.
+  db.exec('PRAGMA journal_mode = WAL');
   db.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       id          TEXT PRIMARY KEY,
@@ -44,7 +83,7 @@ export function initDb(dbPath = 'claude-web-ui.sqlite'): void {
   `);
 }
 
-export function getDb(): Database.Database {
+export function getDb(): SqliteDb {
   if (!db) throw new Error('Database not initialized. Call initDb() first.');
   return db;
 }
