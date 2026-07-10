@@ -471,26 +471,39 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
     if (attempts > 20) { clearInterval(startupCheckInterval!); startupCheckInterval = null; return; }
     try {
       const paneContent = execSync(
-        `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -8`,
+        `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p -S -14`,
         execOpts
       );
       const lastLines = paneContent.trim();
 
       // Check if Claude's main input prompt is visible (bottom of screen)
-      // The prompt looks like: ❯ \n followed by separator ──── and status line
-      if (lastLines.includes('bypass permissions') || lastLines.includes('shift+tab to cycle')) {
+      // The prompt looks like: ❯ \n followed by separator ──── and status line.
+      // Match the lowercase footer ("bypass permissions on"), NOT the warning
+      // dialog's "Bypass Permissions mode", so a pending warning isn't mistaken
+      // for "ready".
+      if (lastLines.includes('bypass permissions on') || lastLines.includes('shift+tab to cycle')) {
         clearInterval(startupCheckInterval!);
         startupCheckInterval = null;
         console.log('Claude is ready');
         return;
       }
 
-      // Startup dialogs that need Enter:
-      if (lastLines.includes('Enter to confirm') ||
-          lastLines.includes('trust this folder') ||
-          lastLines.includes('Yes, I trust') ||
-          lastLines.includes('Dark mode') ||
-          lastLines.includes('Press Enter to continue')) {
+      // The `--dangerously-skip-permissions` warning defaults to "1. No, exit",
+      // so a bare Enter QUITS Claude (the session then dies and its socket
+      // vanishes → permanent "no session"). Select "2. Yes, I accept" instead:
+      // Down moves off the default, Enter confirms.
+      if (lastLines.includes('Yes, I accept') && lastLines.includes('No, exit')) {
+        execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Down Enter`, execOpts);
+        console.log('Auto-accepted Bypass Permissions warning');
+      } else if (
+        // Other startup dialogs whose default is the safe/affirmative option,
+        // so a plain Enter accepts (folder trust, theme, "press Enter").
+        lastLines.includes('trust this folder') ||
+        lastLines.includes('Yes, I trust') ||
+        lastLines.includes('Dark mode') ||
+        lastLines.includes('Press Enter to continue') ||
+        lastLines.includes('Enter to confirm')
+      ) {
         execSync(`${TMUX} send-keys -t ${TMUX_SESSION}:${TMUX_PANE} Enter`, execOpts);
         console.log('Auto-accepted startup prompt');
       }
