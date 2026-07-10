@@ -29,6 +29,13 @@ import { stopStreaming, setPendingGoalCondition, isGoalActive, getGoalCondition 
 // uses root restrictions (only blocks sensitive dotfiles).
 export function addAllowedRoot(_dir: string): void {}
 
+// The working directory the server was started with (CLAUDE_CWD). The server
+// process itself runs from its install dir (start.sh cd's there), so
+// process.cwd() is NOT the workdir — register the real one here so getClaudeCwd
+// can fall back to it before there's a session.
+let baseCwd: string | null = null;
+export function setBaseCwd(cwd: string): void { baseCwd = cwd; }
+
 function isPathSafe(filePath: string): boolean {
   try {
     if (filePath.includes('..')) return false;
@@ -66,7 +73,7 @@ function getClaudeCwd(): string {
     const sess = getSession(managedId);
     if (sess?.cwd) return sess.cwd;
   }
-  return process.cwd();
+  return baseCwd || process.cwd();
 }
 
 /** Convert a model ID like "claude-opus-4-6" to a display name like "Opus 4.6" */
@@ -833,6 +840,9 @@ export function registerApiRoutes(app: Express): void {
         hostname: os.hostname(),
         busy: isTurnActive(),
         goal: { active: isGoalActive(), condition: getGoalCondition() },
+        // The server's working dir (session cwd, else the launch dir) — used as
+        // the default when picking a cwd for a new session.
+        serverCwd: getClaudeCwd(),
       });
     } catch {
       res.json({ model: null, cwd: null, effort: null, permissionMode: null });
@@ -1024,21 +1034,43 @@ export function registerApiRoutes(app: Express): void {
     // depth, not just hide their names — typing the path directly would
     // otherwise bypass the listing filter.
     const BLOCKED = ['.ssh', '.gnupg', '.aws', '.env', '.config/gcloud'];
-    const segments = raw.split('/').filter(Boolean);
-    if (BLOCKED.some(b => {
-      const bSegs = b.split('/');
-      for (let i = 0; i + bSegs.length <= segments.length; i++) {
-        if (bSegs.every((s, k) => segments[i + k] === s)) return true;
-      }
-      return false;
-    })) {
+    const isBlockedPath = (p: string): boolean => {
+      const segs = p.split('/').filter(Boolean);
+      return BLOCKED.some(b => {
+        const bSegs = b.split('/');
+        for (let i = 0; i + bSegs.length <= segs.length; i++) {
+          if (bSegs.every((s, k) => segs[i + k] === s)) return true;
+        }
+        return false;
+      });
+    };
+    // Check the requested path AND its symlink-resolved real path — an
+    // innocuously-named symlink could otherwise point into a blocked dir and
+    // dodge the segment check.
+    let realRaw = raw;
+    try { realRaw = fs.realpathSync(raw); } catch { /* may not exist yet */ }
+    if (isBlockedPath(raw) || isBlockedPath(realRaw)) {
       res.status(403).json({ error: 'Access denied' });
       return;
     }
     try {
       const entries = fs.readdirSync(raw, { withFileTypes: true });
       const dirs = entries
-        .filter(e => e.isDirectory() && !BLOCKED.some(b => b.split('/')[0] === e.name))
+        .filter(e => {
+          if (BLOCKED.some(b => b.split('/')[0] === e.name)) return false;
+          if (e.isDirectory()) return true;
+          // A symlink to a directory has isDirectory()===false; resolve the
+          // target (follows the link) so symlinked dirs still show up. Skip
+          // broken links (throws) and links that resolve into a blocked dir, so
+          // the symlink-follow can't surface e.g. ~/.ssh under an alias.
+          if (e.isSymbolicLink()) {
+            try {
+              const real = fs.realpathSync(path.join(raw, e.name));
+              return fs.statSync(real).isDirectory() && !isBlockedPath(real);
+            } catch { return false; }
+          }
+          return false;
+        })
         .map(e => ({ name: e.name, path: path.join(raw, e.name) }))
         .sort((a, b) => a.name.localeCompare(b.name));
       res.json({ path: raw, parent: path.dirname(raw), dirs });

@@ -14,6 +14,8 @@ interface ClaudeStatus {
   effort: string | null;
   permissionMode: string | null;
   hostname?: string | null;
+  /** The server's working dir (session cwd, else launch dir) — default for the new-session cwd picker. */
+  serverCwd?: string | null;
 }
 
 export default function Header({ session, connected }: HeaderProps) {
@@ -213,7 +215,7 @@ export default function Header({ session, connected }: HeaderProps) {
       </div>
       {cwdPickerVisible && (
         <CwdPicker
-          initialCwd={displayCwd || '/'}
+          initialCwd={displayCwd || status.serverCwd || '/'}
           onConfirm={startNewSessionWithCwd}
           onCancel={() => setCwdPickerVisible(false)}
         />

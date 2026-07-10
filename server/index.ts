@@ -10,7 +10,7 @@ import { registerHookRoutes } from './hooks.js';
 import { registerApiRoutes } from './api.js';
 import { getSessionStatus, startClaudeSession, stopClaudeSession, setSkipPermissions, TMUX, TMUX_SESSION, TMUX_PANE, tmuxExecOpts } from './tmux.js';
 import { setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart, getManagedSessionId } from './hooks.js';
-import { addAllowedRoot } from './api.js';
+import { addAllowedRoot, setBaseCwd } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
 import { setOnClaudeDead, startQuestionWatcher, isGoalActive } from './streaming.js';
 import { setGoalActiveGetter } from './queue.js';
@@ -185,6 +185,7 @@ server.listen(PORT, HOST, () => {
   // Block all hook events until the managed Claude sends its SessionStart
   setWaitingForSessionStart(true);
   addAllowedRoot(CLAUDE_CWD);
+  setBaseCwd(CLAUDE_CWD); // so getClaudeCwd() reports the workdir, not the install dir
 
   // --- Configure hooks ---
   try {
