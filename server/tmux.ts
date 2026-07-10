@@ -431,6 +431,23 @@ export function getSessionStatus(): { alive: boolean; session: string } {
   }
 }
 
+// Absolute path to the `claude` binary, resolved once from the SERVER's env.
+// tmux runs the launch command via the user's login shell (e.g. fish), whose
+// PATH may not include claude even when the server's PATH does — so a bare
+// `claude` fails silently (the session dies immediately, the tmux server exits,
+// and the socket vanishes). Using the absolute path removes that dependency.
+let claudeBinCache: string | null = null;
+function resolveClaudeBin(): string {
+  if (claudeBinCache) return claudeBinCache;
+  try {
+    const p = execSync('command -v claude', { encoding: 'utf-8', timeout: 3000, shell: '/bin/sh' }).trim();
+    if (p && p.startsWith('/')) { claudeBinCache = p; console.log(`[tmux] using claude at ${p}`); return p; }
+  } catch { /* not on the server's PATH — fall back to bare name */ }
+  console.warn('[tmux] `claude` not found on the server PATH — falling back to bare `claude` (the launch may fail if the login shell also lacks it on PATH)');
+  claudeBinCache = 'claude';
+  return claudeBinCache;
+}
+
 export function startClaudeSession(args: string = '', cwd?: string): void {
   // Validate args to prevent injection
   if (args && !/^[\w\s\-\.\/]+$/.test(args)) {
@@ -440,8 +457,9 @@ export function startClaudeSession(args: string = '', cwd?: string): void {
   // --dangerously-skip-permissions bypasses all permission prompts via the CLI
   // arg (honored even where an admin disables bypass mode in settings).
   const bypassFlag = skipPermissions ? ' --dangerously-skip-permissions' : '';
+  const claudeBin = resolveClaudeBin();
   // cd first so Claude Code sees the correct project directory for --resume
-  const cmd = `${TMUX} new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && claude ${args}${bypassFlag}"`;
+  const cmd = `${TMUX} new-session -d -s ${TMUX_SESSION} -c ${shellEscape(dir)} "cd ${shellEscape(dir)} && ${shellEscape(claudeBin)} ${args}${bypassFlag}"`;
   execSync(cmd, execOpts);
 
   // Auto-accept startup prompts (trust, theme, etc.) by pressing Enter.
