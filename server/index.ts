@@ -206,13 +206,22 @@ server.listen(PORT, HOST, () => {
   } else {
     try {
       // Resume the previous active session (across a server restart) when we
-      // have a pointer to one and Claude still holds its transcript; otherwise
-      // start fresh. The SessionStart hook will re-attach to that session's DB.
+      // have a pointer to one, a REAL cwd for it, and Claude still holds its
+      // transcript there; otherwise start fresh. The SessionStart hook will
+      // re-attach to that session's DB.
+      //
+      // Requiring a real, existing cwd matters: `claude --resume <id>` looks for
+      // the transcript under ITS cwd's project dir. If we resume in the wrong
+      // cwd (e.g. a pointer with a null cwd, so we'd fall back to CLAUDE_CWD)
+      // Claude can't find the session, prints an error, and — crucially — stays
+      // ALIVE at a prompt. No SessionStart fires, so no session is created and
+      // the 3s "claude exited" fallback below never triggers → a dead UI. Only
+      // resume when the cwd is real and the transcript is actually there.
       const last = readLastSession();
       let resumeCwd = CLAUDE_CWD;
       let resumingId: string | null = null;
-      if (last && jsonlExistsForSession(last.sessionId, last.cwd || CLAUDE_CWD)) {
-        resumeCwd = last.cwd || CLAUDE_CWD;
+      if (last && last.cwd && dirExists(last.cwd) && jsonlExistsForSession(last.sessionId, last.cwd)) {
+        resumeCwd = last.cwd;
         resumingId = last.sessionId;
         addAllowedRoot(resumeCwd);
       }
@@ -221,6 +230,39 @@ server.listen(PORT, HOST, () => {
       console.log(resumingId
         ? `Resumed previous session ${resumingId} in tmux "${TMUX_SESSION}" (cwd: ${resumeCwd})`
         : `Started Claude Code in tmux session "${TMUX_SESSION}" (cwd: ${CLAUDE_CWD})`);
+
+      // Both recovery paths below (resume-exited at 3s, resume-alive-but-no-
+      // session at 15s) start a fresh session. Guard so only ONE ever fires —
+      // otherwise the 15s timer could kill a fresh session the 3s fallback
+      // already started but that's still booting.
+      let recovered = false;
+      const startFreshAfterFailedResume = (reason: string) => {
+        if (recovered) return;
+        recovered = true;
+        console.warn(`[startup] ${reason} — starting a fresh session in ${CLAUDE_CWD}`);
+        try {
+          stopClaudeSession();               // no-op if already dead
+          setWaitingForSessionStart(true);
+          startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD);
+        } catch (e) { console.error('[startup] fresh-session recovery failed:', e); }
+      };
+
+      // Recovery: a resume can fail while leaving Claude ALIVE at an error prompt
+      // (no SessionStart, no session). Detect that — still resuming, still no
+      // managed session after a grace period — and restart fresh so the UI isn't
+      // stuck. The window is generous (30s) because a large transcript on a slow
+      // cluster can legitimately take a while to fire SessionStart, and killing a
+      // valid slow resume discards the conversation. Meanwhile the UI already
+      // shows a reachable "New Session" control, so this is only a convenience
+      // backstop, not the sole escape hatch.
+      if (resumingId) {
+        setTimeout(() => {
+          if (!getManagedSessionId() && getSessionStatus().alive) {
+            startFreshAfterFailedResume(`Resume of ${resumingId} produced no session within 30s`);
+          }
+        }, 30_000).unref?.();
+      }
+
       // tmux new-session -d returns success once the session is created, even
       // if `claude` itself exits immediately (e.g. CLI not found, bad cwd, auth
       // missing). Probe a few seconds later — if the session is gone, claude
@@ -230,9 +272,7 @@ server.listen(PORT, HOST, () => {
           if (resumingId) {
             // --resume can fail (e.g. cwd/JSONL encoding drift) and exit Claude.
             // Don't leave the user stuck: fall back to a fresh session.
-            console.warn(`[startup] Resuming ${resumingId} failed (claude exited) — starting a fresh session in ${CLAUDE_CWD}`);
-            try { startClaudeSession(`--settings ${HOOKS_SETTINGS_PATH}`, CLAUDE_CWD); }
-            catch (e) { console.error('[startup] fresh-session fallback failed:', e); }
+            startFreshAfterFailedResume(`Resuming ${resumingId} failed (claude exited)`);
             return;
           }
           console.error(
@@ -297,6 +337,11 @@ process.on('SIGTERM', shutdown);
 // Writes hooks to a LOCAL settings file (not ~/.claude/settings.json)
 // so only our managed Claude subprocess uses them.
 const HOOKS_SETTINGS_PATH = path.join(__dirname, '..', 'data', 'hooks-settings.json');
+
+/** True if `p` is an existing directory. */
+function dirExists(p: string): boolean {
+  try { return fs.statSync(p).isDirectory(); } catch { return false; }
+}
 
 function setupHooks() {
   fs.mkdirSync(path.dirname(HOOKS_SETTINGS_PATH), { recursive: true });

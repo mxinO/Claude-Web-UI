@@ -150,29 +150,28 @@ export default function Header({ session, connected }: HeaderProps) {
           @{status.hostname}
         </span>
       )}
-      {session && (
-        <>
-          <span
-            ref={sessionIdRef}
-            className="session-info session-id-clickable"
-            title="Click to switch session"
-            onClick={() => setPickerVisible(v => !v)}
-            style={{ position: 'relative' }}
-          >
-            {switching ? 'Switching...' : `Session: ${session.id.slice(0, 8)}...`}
-            <SessionPicker
-              visible={pickerVisible}
-              onClose={() => setPickerVisible(false)}
-              onSelect={handleSessionSelect}
-              onNewSession={handleNewSession}
-            />
-          </span>
-          {displayCwd && (
-            <span className="session-info" title={displayCwd}>
-              {displayCwd.length > 40 ? '...' + displayCwd.slice(-37) : displayCwd}
-            </span>
-          )}
-        </>
+      {/* Always render the picker trigger — even with no active session — so
+          "New Session" is reachable. Otherwise a startup with no session (e.g.
+          a resume that didn't land one) is an unrecoverable dead end. */}
+      <span
+        ref={sessionIdRef}
+        className="session-info session-id-clickable"
+        title={session ? 'Click to switch session' : 'Click to start a session'}
+        onClick={() => setPickerVisible(v => !v)}
+        style={{ position: 'relative' }}
+      >
+        {switching ? 'Switching...' : session ? `Session: ${session.id.slice(0, 8)}...` : 'No session — click to start'}
+        <SessionPicker
+          visible={pickerVisible}
+          onClose={() => setPickerVisible(false)}
+          onSelect={handleSessionSelect}
+          onNewSession={handleNewSession}
+        />
+      </span>
+      {session && displayCwd && (
+        <span className="session-info" title={displayCwd}>
+          {displayCwd.length > 40 ? '...' + displayCwd.slice(-37) : displayCwd}
+        </span>
       )}
       {displayModel && <span className="model-badge">{displayModel}</span>}
       {modeLabel && (
