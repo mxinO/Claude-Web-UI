@@ -119,12 +119,32 @@ export default function Header({ session, connected }: HeaderProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd }),
       });
-      if (res.ok) {
-        window.location.reload();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || `Failed to start new session: HTTP ${res.status}`);
+        setSwitching(false);
         return;
       }
+      // The server may answer before Claude's SessionStart lands (slow start,
+      // or Claude waiting on a prompt like folder-trust). Reloading immediately
+      // then drops us right back to "no session". Wait until a session actually
+      // exists, then reload; otherwise tell the user why nothing happened.
       const data = await res.json().catch(() => ({}));
-      alert(data.error || `Failed to start new session: HTTP ${res.status}`);
+      if (!data.ready) {
+        let ready = false;
+        for (let i = 0; i < 40; i++) { // up to ~20s
+          await new Promise(r => setTimeout(r, 500));
+          const s = await fetch('/api/sessions/latest').then(r => (r.ok ? r.json() : null)).catch(() => null);
+          if (s && s.id) { ready = true; break; }
+        }
+        if (!ready) {
+          alert('New session requested, but Claude has not reported a session yet. It may be waiting on a prompt (e.g. folder trust) or failed to start — check the tmux session / server logs, then reload.');
+          setSwitching(false);
+          return;
+        }
+      }
+      window.location.reload();
+      return;
     } catch (err) {
       alert(`Failed to start new session: ${err}`);
     }
