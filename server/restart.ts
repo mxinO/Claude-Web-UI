@@ -34,6 +34,15 @@ const HEALTH_CHECK_DELAY_MS = 5_000;
 let restarting = false;
 let lastRestartAt = 0;
 
+/** True while an auto-restart is in progress (used by the health monitor to
+ *  avoid re-triggering / logging during the restart's own kill→start window). */
+export function isRestarting(): boolean { return restarting; }
+
+// Set during server shutdown so an in-flight restart (parked in an await) does
+// NOT spawn a fresh, detached tmux Claude that would outlive the process.
+let shuttingDown = false;
+export function setRestartShuttingDown(v: boolean): void { shuttingDown = v; }
+
 export type RestartOutcome = 'started' | 'cooldown' | 'no-session' | 'in-progress' | 'failed';
 
 /** Resume Claude in the last-known cwd of the currently-managed session when
@@ -82,6 +91,10 @@ export async function autoRestartClaude(sidAtDeath: string | null): Promise<Rest
 
     stopClaudeSession();
     await new Promise(r => setTimeout(r, 500));
+    // If the server began shutting down during that await, don't relaunch — a
+    // fresh detached tmux Claude would outlive process.exit as an orphan.
+    // (The finally below resets `restarting`.)
+    if (shuttingDown) return 'in-progress';
     resetQueue();
     setManagedSessionId(null);
     setWaitingForSessionStart(true);

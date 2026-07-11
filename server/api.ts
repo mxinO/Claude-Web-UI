@@ -619,10 +619,13 @@ export function registerApiRoutes(app: Express): void {
     }
   });
 
-  // POST /api/session/stop — graceful shutdown
+  // POST /api/session/stop — graceful stop (stays stopped; not resurrected)
   router.post('/session/stop', (_req, res) => {
     try {
       const sid = getManagedSessionId();
+      // Clear the managed session so the health monitor treats this as an
+      // intentional stop and does NOT auto-restart Claude.
+      setManagedSessionId(null);
       stopClaudeSession();
       setTurnActive(false); // killed process won't fire a Stop hook
       // No claude-dead/reconnect backstop on a graceful stop, so push busy:false
@@ -883,18 +886,21 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     try {
+      // Mark "switching" BEFORE killing Claude so the health monitor treats this
+      // as an intentional restart (and doesn't auto-resume the old session).
+      // waitingForSessionStart alone gates the monitor, so keep managedSessionId
+      // set through resetQueue() (it drives the queue_remove broadcasts).
+      setWaitingForSessionStart(true);
+
       // Reset all transient state before killing the old session
       stopStreaming();
       resetQueue();
+      setManagedSessionId(null);
 
       // Kill current Claude
       stopClaudeSession();
       setTurnActive(false); // killed mid-turn won't fire a Stop hook
       await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Reset managed session so hooks attach to the new one
-      setManagedSessionId(null);
-      setWaitingForSessionStart(true);
 
       // Start Claude with --resume in the session's CWD
       const targetCwd = cwd || process.cwd();
@@ -947,15 +953,19 @@ export function registerApiRoutes(app: Express): void {
       return;
     }
     try {
+      // Mark "switching" BEFORE killing Claude so the health monitor treats this
+      // as an intentional restart. waitingForSessionStart alone gates the
+      // monitor, so keep managedSessionId set through resetQueue().
+      setWaitingForSessionStart(true);
+
       stopStreaming();
       resetQueue();
+      setManagedSessionId(null);
 
       stopClaudeSession();
       setTurnActive(false); // killed mid-turn won't fire a Stop hook
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      setManagedSessionId(null);
-      setWaitingForSessionStart(true);
       const __dirname = path.dirname(new URL(import.meta.url).pathname);
       const hooksSettings = path.join(__dirname, '..', 'data', 'hooks-settings.json');
       console.log(`[new-session] starting fresh in ${targetCwd}`);

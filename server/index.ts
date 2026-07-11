@@ -14,7 +14,7 @@ import { addAllowedRoot, setBaseCwd } from './api.js';
 import { initAuth, getAuthToken, checkAuthCookie, getCookieName } from './auth.js';
 import { setOnClaudeDead, startQuestionWatcher, isGoalActive } from './streaming.js';
 import { setGoalActiveGetter } from './queue.js';
-import { autoRestartClaude, jsonlExistsForSession } from './restart.js';
+import { autoRestartClaude, jsonlExistsForSession, isRestarting, setRestartShuttingDown } from './restart.js';
 import { readLastSession } from './lastSession.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +49,10 @@ if (!fs.existsSync(CLAUDE_CWD)) {
 // auto-restart, and new/switch-session all skip permission prompts.
 setSkipPermissions(BYPASS);
 if (BYPASS) console.warn('⚠ --bypass: launching Claude with --dangerously-skip-permissions (no permission prompts)');
+
+// Set during graceful shutdown so the health monitor doesn't try to resurrect
+// Claude while we're tearing everything down.
+let shuttingDown = false;
 
 // --- Auth ---
 initAuth(!NO_AUTH);
@@ -303,6 +307,37 @@ server.listen(PORT, HOST, () => {
     }
   }
 
+  // --- Always-on health monitor ---
+  // The streaming poller only detects a dead Claude DURING a turn. If Claude is
+  // aborted while idle (its tmux session is closed, or claude exits in the
+  // pane), nothing notices. Poll periodically and auto-restart (resuming the
+  // session) so the UI recovers on its own. Guards keep it from fighting
+  // intentional operations:
+  //   - shuttingDown: server is exiting.
+  //   - no managed session: nothing established yet, or mid switch/new (they
+  //     null the managed id + set waitingForSessionStart first).
+  //   - waitingForSessionStart: startup / switch / new / an in-flight restart.
+  //   - isRestarting(): an auto-restart is already underway.
+  // autoRestartClaude also has its own 30s cooldown, so a persistently-crashing
+  // Claude won't spin in a tight restart loop.
+  // Require 2 consecutive dead reads before acting: getSessionStatus() reports
+  // dead on ANY `tmux has-session` failure, including a transient timeout under
+  // load — a single false reading must not destroy a healthy Claude. (The
+  // streaming poller debounces the same way.) And trigger at most once per death
+  // episode (reset when alive again), so we don't re-call autoRestartClaude —
+  // which broadcasts claude_dead — every tick while it's on cooldown.
+  let deadStreak = 0;
+  let reportedDead = false;
+  setInterval(() => {
+    if (shuttingDown || isRestarting() || isWaitingForSessionStart()) { deadStreak = 0; return; }
+    const sid = getManagedSessionId();
+    if (!sid || getSessionStatus().alive) { deadStreak = 0; reportedDead = false; return; }
+    if (++deadStreak < 2 || reportedDead) return;
+    reportedDead = true;
+    console.warn('[health] Claude tmux session is gone while idle — auto-restarting');
+    void autoRestartClaude(sid);
+  }, 3000).unref?.();
+
   const displayHost = HOST === '0.0.0.0' ? getLocalIP() : HOST;
   const baseUrl = `http://${displayHost}:${PORT}`;
   if (AUTH_TOKEN) {
@@ -316,6 +351,8 @@ server.listen(PORT, HOST, () => {
 
 // --- Graceful shutdown ---
 function shutdown() {
+  shuttingDown = true; // stop the health monitor from resurrecting Claude
+  setRestartShuttingDown(true); // and abort any in-flight auto-restart after its await
   console.log('\nShutting down...');
   if (!MOCK) {
     try {
