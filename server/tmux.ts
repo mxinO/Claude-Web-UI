@@ -431,6 +431,25 @@ export function getSessionStatus(): { alive: boolean; session: string } {
   }
 }
 
+/** True when Claude's TUI is at its input prompt (past startup dialogs like the
+ *  bypass warning / folder trust), so it's safe to inject a message. Detected by
+ *  the ready footer, same signal startClaudeSession's startup watcher uses. */
+export function isClaudeReady(): boolean {
+  try {
+    const pane = execSync(
+      `${TMUX} capture-pane -t ${TMUX_SESSION}:${TMUX_PANE} -p`,
+      tmuxExecOpts(3000),
+    );
+    // Only the bottom-most lines (the live footer). Scanning the whole pane
+    // could false-positive on footer-like text sitting in visible transcript
+    // scrollback (e.g. a conversation that quotes "shift+tab to cycle").
+    const tail = pane.split('\n').filter(l => l.trim()).slice(-3).join('\n');
+    return tail.includes('shift+tab to cycle') || tail.includes('bypass permissions on');
+  } catch {
+    return false;
+  }
+}
+
 // Absolute path to the `claude` binary, resolved once from the SERVER's env.
 // tmux runs the launch command via the user's login shell (e.g. fish), whose
 // PATH may not include claude even when the server's PATH does — so a bare

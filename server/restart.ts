@@ -1,9 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { startClaudeSession, stopClaudeSession, getSessionStatus } from './tmux.js';
+import { startClaudeSession, stopClaudeSession, getSessionStatus, sendInput, isClaudeReady } from './tmux.js';
 import { getSession } from './db.js';
-import { getManagedSessionId, setManagedSessionId, setWaitingForSessionStart, setTurnActive, isTurnActive } from './hooks.js';
+import { getManagedSessionId, setManagedSessionId, setWaitingForSessionStart, isWaitingForSessionStart, setTurnActive, isTurnActive } from './hooks.js';
 import { resetQueue } from './queue.js';
 import { broadcast } from './websocket.js';
 
@@ -113,6 +113,15 @@ export async function autoRestartClaude(sidAtDeath: string | null): Promise<Rest
       }
     }, HEALTH_CHECK_DELAY_MS).unref?.();
 
+    // On a resume, nudge Claude to pick up any interrupted work (a plain
+    // --resume just reopens the transcript and waits). The prompt is written so
+    // an idle session simply acknowledges — that's the only way to also cover
+    // work the server can't see (scheduled wakeups / background tasks). A fresh
+    // start has no transcript to resume, so skip it there.
+    if (canResume) {
+      void resumeInterruptedWork();
+    }
+
     return 'started';
   } catch (err) {
     console.error('[auto-restart] failed:', err);
@@ -120,5 +129,37 @@ export async function autoRestartClaude(sidAtDeath: string | null): Promise<Rest
     return 'failed';
   } finally {
     restarting = false;
+  }
+}
+
+const RESUME_INTERRUPTED_MSG =
+  '[system] This session was interrupted (the process was aborted) and has just been auto-resumed. ' +
+  'If you had work in progress — an active task, background subagents/tasks, or a scheduled or looping action — ' +
+  're-verify the current state and carefully resume it from where you left off, without repeating steps that already completed. ' +
+  'If you were simply idle waiting for me, just briefly confirm you are back and wait for my next message.';
+
+/** After a resume, wait for the TUI to reach its input prompt (past the
+ *  bypass/trust startup dialogs) and inject a message telling Claude to pick up
+ *  any interrupted work. Best-effort: gives up if it never becomes ready or the
+ *  server is shutting down. */
+let resumingWork = false;
+async function resumeInterruptedWork(): Promise<void> {
+  // Fire-and-forget + up-to-30s poll ≈ the restart cooldown, so a crash-loop
+  // could otherwise overlap two of these and inject the prompt twice. Guard it.
+  if (resumingWork) return;
+  resumingWork = true;
+  try {
+    for (let i = 0; i < 60; i++) { // up to ~30s
+      await new Promise(r => setTimeout(r, 500));
+      if (shuttingDown) return;
+      if (getManagedSessionId() && !isWaitingForSessionStart() && getSessionStatus().alive && isClaudeReady()) {
+        sendInput(RESUME_INTERRUPTED_MSG);
+        console.log('[auto-restart] resumed transcript — sent resume-work prompt');
+        return;
+      }
+    }
+    console.warn('[auto-restart] Claude did not become ready in time — skipped resume-work prompt');
+  } finally {
+    resumingWork = false;
   }
 }
